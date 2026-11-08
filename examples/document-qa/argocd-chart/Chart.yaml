@@ -1,0 +1,6 @@
+apiVersion: v2
+name: document-qa-argocd
+description: Ephemeral synthetic document-QA directory qualification input
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

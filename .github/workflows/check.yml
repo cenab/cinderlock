@@ -42,13 +42,15 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: python3 -m unittest discover -s examples/document-qa -p test_app.py
       - run: python3 -m unittest discover -s tools/helm -p test_prepare.py
-      - run: python3 -m unittest discover -s tests/integration -p 'test_*.py'
       - name: Prepare patched pinned Helm
         run: |
           tools/helm/prepare.sh --go "$(go env GOROOT)/bin/go" \
             --out "$RUNNER_TEMP/cinderlock-tools/bin/helm" \
             --notices "$RUNNER_TEMP/cinderlock-tools/helm-notices"
           echo "$RUNNER_TEMP/cinderlock-tools/bin" >> "$GITHUB_PATH"
+      - run: python3 -m unittest discover -s tests/integration -p 'test_*.py'
+        env:
+          CINDERLOCK_TEST_HELM: ${{ runner.temp }}/cinderlock-tools/bin/helm
       - run: helm lint examples/document-qa/chart
       - name: Build portable executables
         run: |
