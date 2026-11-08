@@ -392,12 +392,17 @@ func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec
 	return nil
 }
 
-func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.Check, bindings []fixtureBinding, v *bundle.Verified) error {
+func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.Check, bindings []fixtureBinding, v *bundle.Verified, beforeStart func() (spec.TargetSnapshot, error)) error {
 	image, err := e.image(v, e.Site.Spec.HelperImage)
 	if err != nil {
 		return err
 	}
-	for _, binding := range bindings {
+	for i, binding := range bindings {
+		if i > 0 && beforeStart != nil {
+			if _, err := beforeStart(); err != nil {
+				return err
+			}
+		}
 		if err := e.validateFixtureBinding(ctx, runID, binding); err != nil {
 			return err
 		}

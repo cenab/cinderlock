@@ -447,7 +447,10 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	external := ""
 	applicationAttempted := false
 	if len(fixtures) > 0 {
-		err = e.verifyCheckFixtures(ctx, runID, c, fixtures, v)
+		err = e.verifyCheckFixtures(ctx, runID, c, fixtures, v, beforeStart)
+		if err == nil && beforeStart != nil {
+			_, err = beforeStart()
+		}
 	}
 	if err == nil {
 		applicationAttempted = true

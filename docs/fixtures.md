@@ -82,6 +82,9 @@ attempt. A missing file, changed hash or size, extra entry, or symlink prevents
 the application check from starting. The application Job's recipe includes the
 exact fixture bindings and read-only mounts. The journal and original workers
 are rechecked before accepting completion or resuming an interrupted check.
+After a verifier wait, the next verifier or authored application worker needs a
+fresh coordination, policy, approval and checkpoint guard. If that guard fails,
+the next worker does not start and the recorded helper evidence is retained.
 
 A definite fixture-verifier failure records that no application-worker create
 was attempted. Explicit recovery can proceed after all recorded workers are

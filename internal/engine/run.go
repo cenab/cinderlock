@@ -396,13 +396,21 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 				return fail(err)
 			}
 		}
-		if _, err := checkBoundary(); err != nil {
-			return fail(err)
-		}
 		if err := e.clusterRecord(ctx, result.RunID, result.PlanDigest, "verifying", check); err != nil {
 			return fail(err)
 		}
-		r := e.check(ctx, result.RunID, check, v, nil)
+		var boundaryErr error
+		r := e.check(ctx, result.RunID, check, v, func() (spec.TargetSnapshot, error) {
+			var snapshot spec.TargetSnapshot
+			snapshot, boundaryErr = checkBoundary()
+			return snapshot, boundaryErr
+		})
+		if boundaryErr != nil {
+			if r.Evidence != "" {
+				mergeCheckResults(&result, []spec.CheckResult{r})
+			}
+			return fail(boundaryErr)
+		}
 		mergeCheckResults(&result, []spec.CheckResult{r})
 		if r.Status == "blocked" {
 			attempt, err := e.Store.LatestOperation(ctx, result.RunID, checkStepID(check.ID))
