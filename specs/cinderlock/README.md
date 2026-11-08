@@ -8,48 +8,40 @@ whole feature set. It does not establish a customer pilot or hardware support.
 
 ## Next Agent Prompt
 
-Continue the incomplete mechanisms listed in the
-[feature audit](../../docs/features.md); a passing reference workflow isn't
-completion of the broader product. The current native-streaming CPU lab passed
-install, model and fixture verification, schema upgrade, persistence, actual
-missing-document failure, and separate synthetic restore. It also exercised
-configuration ownership, storage budgets, custody-head replay rejection, signed
-policy updates, server admission dry-runs, and the patched Helm toolchain.
-See the [qualification record](../../docs/qualification.md) for exact source and
-evidence boundaries. Local receipts remain private under `.local/`.
+Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
+using the normal intent, worker, coordination, approval and recovery owners:
 
-Published `0a73b09` passed hosted Go checks and the real CPU Kubernetes workflow.
-The later native run from `8db0077` under `.local/qualification-005/` completed
-installation, upgrade, deliberate document loss, and separate restore. The
-upgrade first exceeded the overall local wait, then resumed under fresh exact-plan
-authorization after preserving all 18 original Jobs and eight volume/manifest
-bindings. Required endpoint and numeric checks passed; the optional zero-budget
-control retained its failure. Original failed-release acceptance stayed unset.
-The owned image builder has been removed; archives and exact receipts remain.
+1. Complete native fresh-volume preparation and separately authorized
+   accepted-source checks. Before landing, pin/fix effective read-only mount
+   semantics, queued writers without Pods, and source freshness after dependency
+   reads. Preserve same-run fixture proof and original cross-run model evidence.
+2. Implement mutable data procedures before and after independent source
+   adoption, plus separately authorized restoration. Describe the durable gate
+   and exact predecessor transfer before coding this slice. Model preparation
+   and healthy controller status cannot substitute for these mechanisms.
+3. Exercise the resulting public CLI in the owned lab, finish the combined
+   release gates and feature documentation, then publish. Keep failed upgrade
+   acceptance separate from successful recovery and retain original identities.
 
-The bounded Argo directory/source/resource observer at `f8bf623` passed against
-the pinned Argo CD v3.6.1 core in `kind-cinderlock-test`, namespace
-`cinderlock-argocd-lab`. Actual Deployment/Service/ConfigMap fields and SSA
-ownership matched; application acceptance remains unestablished. Five source,
-foreign-owner, hook and live-drift controls blocked, followed by a restored
-positive with the original UIDs. Source and bootstrap identities remain private
-under `.local/argocd-profile/`; no GitOps application workflow is qualified yet.
-Finish F39 model/data preparation, independently authorized application checks
-and data recovery using the normal engine, then run the complete release gates
-and publish. Controller observation alone cannot establish application acceptance.
-Keep these passes separate from the hosted core baseline; incomplete original
-worker identities cannot serve as resume evidence.
+| Source | Completed evidence and boundary | Private records |
+| --- | --- | --- |
+| `0a73b09` | Hosted core Go and CPU transition/recovery baseline passed. | `.local/hosted-ci-42455956767/` |
+| `8db0077` | Native CPU install, explicitly resumed upgrade, actual document loss and separate restore passed; endpoint/numeric Jobs included. All 18 original upgrade Jobs and eight volume/manifest bindings survived resume. | `.local/qualification-005/` |
+| `f8bf623` | Real Argo v3.6.1 source/resource/SSA observation, five denial controls and restored original UIDs passed. Application acceptance remains unestablished. | `.local/argocd-profile/` |
+| `34937f5` | Fresh unit/race/vet, actual PostgreSQL, source scan, static Linux builds, full source/toolchain/Helm/legal export and offline compilation passed. Binaries were not run by build checks. | `.local/distribution-34937f5/` |
+| Published `edee42d` | Same Go code plus documentation. Hosted run 42468205931 passed its Go job; CPU Kubernetes job remains in progress. | `.local/hosted-ci-42468205931/` |
 
-Subsequent safety passes recheck current authority after fixture-verifier waits
-and before final acceptance. Prerequisites no longer repeat the immediately
-adjacent target sweep, while each new worker and effect retains its fresh guard.
-The timing audit identified duplication; no post-change live speedup is claimed.
-Whole-tree checks passed at `f8bf623`. Later merges need the combined release
-gates. Conceptual engine/observer/input splits leave every source below the
-8,000-token audit budget without adding a hook or dependency.
+The [qualification record](../../docs/qualification.md) owns detailed limits.
+Prerequisite duplication was removed while retaining actual-start, post-wait
+and final guards; no matched live speedup is claimed. Source size audit lists
+zero files over 8,000 tokens, without a hook or added dependency.
 
-The user will supply NVIDIA test hardware later. Keep GPU qualification open;
-continue all CPU, artifact, permission, security, catalog, and distribution work.
+The private q007 persistent input draft retains every original procedure and
+has no live effects. It awaits the actual data contracts. An optional model
+mount in the existing stateless Argo chart can qualify the earlier preparation
+slice separately. Recheck the frozen `8db0077` helper protocol against the final
+execution CLI before reuse; original q006 and native005 artifacts stay unchanged.
+The user will supply NVIDIA hardware later; keep that qualification open.
 
 Use explicit kubeconfig/context paths on every Kubernetes/Helm invocation.
 Never use the workstation's default production context. Temporary credentials,
