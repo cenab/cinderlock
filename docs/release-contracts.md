@@ -119,11 +119,12 @@ depend on trustworthy cluster and operator clocks.
 The vendor's bundled procedure must describe its supported offline renewal,
 material acquisition, customer intake, validity checks, and failure escalation.
 Follow that procedure and customer policy, replace the customer-managed material,
-and create an appropriately authorized plan or recovery procedure. Changed
-secret metadata invalidates the old checkpoint. Resolve any original worker's
-outcome before a new attempt. A new signed upper validity bound requires newly
-admitted vendor release content. Cinderlock does not renew licenses, bypass
-activation, or change license terms.
+and create an appropriately authorized plan or recovery procedure. Changes to
+the bound Secret identity, type, selected credential contents, or relevant
+ownership invalidate the old checkpoint; ordinary metadata churn does not.
+Resolve any original worker's outcome before a new attempt. A new signed upper
+validity bound requires newly admitted vendor release content. Cinderlock does
+not renew licenses, bypass activation, or change license terms.
 
 This preview requires explicit declarations on existing authored scripts and
 Job checks, including worker resources and explicit timeouts. Older declarations,
