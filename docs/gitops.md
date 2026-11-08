@@ -154,6 +154,13 @@ claims remain supported. Unknown kinds, opaque lifecycle hooks, force
 operations, and ambiguous facts stay blocked. This isn't a general proof that
 no drift or other writer exists.
 
+For Argo's explicit `appTree` health format, the observer requires aggregate
+Application health and directly checks the live Deployment rollout. It keeps
+missing inline resource health absent; it doesn't fetch or claim to read the
+separate application tree. Inline health, when supplied, must still be healthy.
+Unknown health formats block. The [pinned controller's health handling](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/controller/health.go)
+defines that distinction.
+
 The pinned Helm tool reads the selected release's history before and after
 observation. Active or uncertain history blocks this profile. Rendering uses a
 frozen install context through the shared renderer and never reads active Helm

@@ -183,6 +183,10 @@ func gitOpsProfileTimes(u *unstructured.Unstructured, c GitOpsProfileContract, o
 }
 
 func gitOpsProfileResources(application *unstructured.Unstructured, desired []*unstructured.Unstructured, out *GitOpsProfileObservation) bool {
+	healthSource, _, err := unstructured.NestedString(application.Object, "status", "resourceHealthSource")
+	if err != nil || healthSource != "" && healthSource != "appTree" {
+		return false
+	}
 	byIdentity := map[string]int{}
 	for i, u := range desired {
 		byIdentity[u.GroupVersionKind().Group+"/"+u.GetKind()+"/"+u.GetNamespace()+"/"+u.GetName()] = i
@@ -260,7 +264,7 @@ func gitOpsProfileResources(application *unstructured.Unstructured, desired []*u
 					return false
 				}
 				fact.ControllerHealth = "Healthy"
-			} else if desired[i].GetKind() == "Deployment" {
+			} else if desired[i].GetKind() == "Deployment" && healthSource != "appTree" {
 				return false
 			}
 			fact.SyncStatus = "Synced"

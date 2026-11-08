@@ -286,6 +286,10 @@ child ownership. The existing dependency becomes direct; its version is unchange
 An omitted default such as one replica still changes application behavior, so
 foreign spec/data/immutability claims block even outside the supplied field set.
 Ordinary defaults and controller status/revision bookkeeping remain supported.
+When Argo stores child health in its separate application tree, the observer
+retains absent inline child health and combines aggregate application health
+with the actual Deployment rollout. It does not infer a tree read or synthesize
+child health; unknown or contradictory representations remain blocked.
 
 ### Separate the vendor's proposal base from the customer's accepted commit
 
