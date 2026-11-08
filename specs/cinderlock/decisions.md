@@ -107,3 +107,111 @@ while reserving room for other run data. The design left this storage boundary
 open. Samples are not truncated, but a cluster record cannot reconstruct a lost
 operator journal. An oversized unrelated result must preserve the previous
 readable journal state rather than silently expanding the supported reader.
+
+## Contract, inspection and delivery integration
+
+### Require script declarations instead of inferring safety
+
+**Verdict:** sound · **Confidence:** medium. **When:** contract integration.
+
+A vendor-supplied migration can change a database even when its caller times
+out. Each authored script now names its inputs, needed access, possible effects,
+success checks and retry classification. Those are signed declarations, not
+permissions or proof that retrying is safe. The design left the concrete schema
+open. A manual script may run once under the exact authorized plan; uncertainty
+requires reconciliation or recovery. Existing preview recipes must be relocked
+and replanned rather than translated into guessed safety statements.
+
+### Intermediate releases and entitlement checks remain explicit prerequisites
+
+**Verdict:** sound · **Confidence:** medium. **When:** prerequisite integration.
+
+If a customer must install an intermediate release before the target, the plan
+names the ordered path and blocks the unsupported direct jump. It does not
+choose or download another release. Likewise, an offline license check runs the
+vendor's locked recipe and its original completion time defines freshness;
+reading the result later cannot renew it. The design did not specify a version
+solver or freshness clock. Operators must have a trustworthy local clock and
+vendor renewal instructions, and independently authorize each transition.
+
+### Support deterministic root charts before widening Helm intake
+
+**Verdict:** sound · **Confidence:** medium. **When:** chart-intake integration.
+
+When a chart invokes a random generator or looks up live cluster state, reviewing
+one render cannot establish the original template's later behavior. Intake
+inspects syntax without running it, including unused definitions, then execution
+uses the frozen reviewed objects. This profile accepts canonical root charts
+and rejects bundled subcharts and dynamic evaluation. The design left the
+inspection boundary open. Applications using those chart features need an
+explicitly expanded, tested profile; a permissive fallback would hide the gap.
+
+### Failed reads remain different from empty inventories
+
+**Verdict:** sound · **Confidence:** high. **When:** inspection integration.
+
+A successful empty resource list can establish absence; an unavailable API or
+denied list cannot. Inspection retains those distinct facts, and planning and
+execution block when required inventory is incomplete. Optional node/version
+facts remain advisory for a CPU release, while a GPU release still needs its
+separate probe. The design left partial-read behavior open. This gives operators
+useful restricted-access diagnostics without inventing a target or fresh install.
+
+### Bind relevant secret content privately and keep ownership separate
+
+**Verdict:** sound · **Confidence:** high. **When:** inspection integration.
+
+A monitoring annotation should not require another upgrade approval, but changed
+credentials must. The existing private fingerprint key binds Secret identity,
+type and relevant bytes using separate HMAC domains, so exported digests do not
+permit ordinary public hash guessing. Managed and image-pull Secrets bind all
+keys; explicit external aliases bind their combined selected keys. Ownership has
+its own binding. The design left this distinction open. The operator journal's
+key must be retained, and replacement or relevant data/ownership changes require
+fresh inspection and authorization.
+
+### Retained volume inventory grants no ownership
+
+**Verdict:** sound · **Confidence:** high. **When:** ownership integration.
+
+A StatefulSet can leave a data volume without Helm markers or controller links.
+Cinderlock may record and retain it, but only exact qualified ownership allows
+a direct Helm mutation. A name prefix cannot establish that authority. Needed
+API caller permissions and declared service accounts are shown per step without
+claiming their grants were tested. The design left the representation open.
+Customers can inspect existing releases without silently adopting unrelated
+storage or treating retained object identity as restored application data.
+
+### Catalog packs restrict observations without granting execution
+
+**Verdict:** sound · **Confidence:** high. **When:** catalog-policy integration.
+
+Registering a policy-pack record does not make it binding. An independent
+catalog configuration admits its exact record digest and project/site scope;
+applicable restrictions intersect and are rechecked when review is retried.
+The design left policy representation open. This provides reusable restrictions
+without a policy language or another execution authority. Customer plan signatures
+and local trust remain required even after catalog review succeeds.
+
+### Runtime capture claims keep their producer and gaps
+
+**Verdict:** sound · **Confidence:** high. **When:** runtime-evidence integration.
+
+A collector can miss packets or identify only part of a process. Imported signed
+DNS/TCP/UDP observations therefore retain producer confidence, capture timing,
+unsupported protocols, attribution gaps and lost events. An empty capture is not
+proof of no network dependence. The design did not require a particular collector.
+External producers can integrate now; qualifying them or adding a native collector
+cannot silently strengthen an application's original acceptance result.
+
+### GitOps preparation remains separate from a controller's application result
+
+**Verdict:** sound · **Confidence:** high. **When:** GitOps delivery integration.
+
+A completed image copy says the internal registry has the selected signed graph,
+not that a controller installed a healthy application. Image staging uses its own
+exact authorized plan and cannot advance the accepted application release floor.
+A source proposal is an inert whole-file patch for one clean tracked YAML file;
+it never commits, pushes or fetches. The design left repository integration open.
+Customers retain their source review process. Model/data preparation and actual
+controller/workflow evidence still need their own execution paths.

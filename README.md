@@ -140,10 +140,12 @@ The [qualification record](docs/qualification.md) describes the passing CPU
 workflow and the limits of the observed evidence.
 
 - [Architecture and trust boundaries](docs/architecture.md)
+- [Release scripts and offline prerequisites](docs/release-contracts.md)
 - [Kubernetes permission planning](docs/permissions.md)
 - [Configuration ownership and masked review](docs/configuration.md)
 - [Storage peaks and capacity assertions](docs/storage-planning.md)
 - [Native offline model staging](docs/native-model-staging.md)
+- [GitOps image staging and local source proposals](docs/gitops.md)
 - [Verified acceptance fixtures](docs/fixtures.md)
 - [Application-owned numeric observations](docs/observations.md)
 - [Bundle intake and custody records](docs/intake.md)

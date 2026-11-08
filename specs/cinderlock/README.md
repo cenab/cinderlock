@@ -19,10 +19,12 @@ See the [qualification record](../../docs/qualification.md) for the evidence
 boundary. Local receipts remain private under `.local/qualification-004/`.
 
 Published core at `7d81f2e` passed hosted Go and real Kubernetes install, upgrade,
-failure and recovery CI. Numeric observation contracts and reports are the next
-local pass. Integrate the completed contract, inventory, policy and GitOps
-worktree commits, then requalify the combined tree. Endpoint preflight remains
-in progress; authored worker resource budgets and controller qualification follow.
+failure and recovery CI. Numeric observations, script/entitlement contracts, inventory/ownership, policy
+packs, runtime evidence and GitOps image staging/source proposals are now merged
+locally. Requalify the combined tree; the published baseline does not cover
+these changes. Endpoint preflight, CPU observation integration tests and a bounded
+Argo controller observer are in progress. Authored worker resource budgets and
+GitOps model preparation/check execution follow.
 Keep new slices separate from the recorded baseline. Experimental journals
 without original worker/volume identities cannot serve as resume evidence.
 
@@ -43,8 +45,8 @@ the remaining unchecked work is a release gate, not permission to stop.
 
 | Slice | Seam and runnable evidence | State |
 | --- | --- | --- |
-| 01: trusted input | `internal/spec`; strict contracts, canonical bytes, exact field names, required application checks | Merged checks pass; script-contract gaps remain in the feature audit |
-| 02: artifact delivery | `internal/bundle`, `internal/transfer`; signed closure, OCI, multipart, differential, inventory and cache references | Unit/race, scoped source-auth, registry, and live bundle delivery pass |
+| 01: trusted input | `internal/spec`; strict contracts, canonical bytes, exact field names, required application checks | Merged strict script/prerequisite and observation contracts pass local checks |
+| 02: artifact delivery | `internal/bundle`, `internal/transfer`; signed closure, OCI, multipart, differential, inventory and cache references | Core delivery passes; new GitOps image-staging/proposal package checks pass |
 | 03: target and plans | `internal/engine`; identity/configuration bindings, permission, admission, and unsupported-state findings | Unit/fault and real CLI integration pass for the recorded CPU profile |
 | 04: controlled execution | `internal/state`, `internal/engine`; intent, coordination, reconciliation, upgrades/recovery | Unit/fault tests and live synthetic upgrade/recovery pass; broader interruption/storage qualification remains |
 | 05: reference transition | `examples/document-qa`; synthetic HTTP/SQLite ingestion, persistence, migration and restore | App/chart tests and real kind transition pass |

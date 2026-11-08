@@ -66,6 +66,19 @@ Standalone report and catalog pages received desktop/mobile browser smoke
 checks, keyboard checks, and visual inspection. No external assets were
 requested in those checks. This isn't a complete accessibility certification.
 
+## Hosted core baseline
+
+[GitHub run 42450645426](https://github.com/cenab/cinderlock/actions/runs/42450645426)
+passed both Go and Kubernetes jobs for commit `7d81f2e` on November 8, 2026 UTC.
+Its retained synthetic receipts show successful installation and upgrade,
+deliberate document-loss failure, and a separately successful recovery. The
+original failed release remains unaccepted. The source distribution was also
+compiled with network acquisition disabled.
+
+This baseline predates the later script, inventory, policy, GitOps and numeric
+observation passes. Local package/race and PostgreSQL checks on the combined
+code do not substitute for a new live qualification run.
+
 ## Reproduce and extend the evidence
 
 Use the [lab guide](test-lab.md) for fresh local inputs. The

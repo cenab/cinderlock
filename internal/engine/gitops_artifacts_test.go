@@ -396,11 +396,14 @@ func TestGitOpsArtifactsBoundImportSelection(t *testing.T) {
 	v.Index.Lock.Release.Spec.Assets = make([]spec.Asset, 129)
 	for i := range v.Index.Lock.Assets {
 		id := fmt.Sprintf("image-%d", i)
+		if i == 0 {
+			id = first.ID
+		}
 		v.Index.Lock.Assets[i] = first
 		v.Index.Lock.Assets[i].ID = id
 		v.Index.Lock.Release.Spec.Assets[i] = spec.Asset{ID: id, Type: "image", Source: first.Source}
 	}
-	if _, err := artifactOperations(v); spec.ExitCode(err) != 10 {
-		t.Fatal("unbounded image list admitted", err)
+	if _, err := artifactOperations(v); spec.ExitCode(err) != 10 || !strings.Contains(err.Error(), "bounded journal") {
+		t.Fatal("unbounded image list did not reach the staging bound", err)
 	}
 }
