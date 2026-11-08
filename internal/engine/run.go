@@ -172,6 +172,9 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	result.State = "mutating"
 	result.Error, result.FinishedAt = "", ""
 	fail := func(err error) (spec.RunResult, error) {
+		if ctx.Err() != nil {
+			err = spec.Err(13, "local execution wait ended; reconcile the original recorded worker outcomes before continuing")
+		}
 		result.Error = err.Error()
 		result.FinishedAt = spec.Now()
 		result.State = "failed"
