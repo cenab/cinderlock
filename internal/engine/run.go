@@ -532,7 +532,7 @@ func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spe
 		if err != nil {
 			return "", err
 		}
-		if err := checkOwner(d.ObjectMeta, e.Site.Spec.ReleaseName); err != nil {
+		if err := checkOwner(&d.ObjectMeta, e.Site.Spec.ReleaseName, nil); err != nil {
 			return "", err
 		}
 		if d.Labels["app.kubernetes.io/instance"] != e.Site.Spec.ReleaseName {

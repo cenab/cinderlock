@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cenab/cinderlock/internal/spec"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,6 +74,18 @@ func TestRetirementRetainsReviewedUIDAndSkipsHooks(t *testing.T) {
 		t.Fatalf("reviewed uninstall failed: %v", err)
 	}
 	claim, _ := client.CoreV1().PersistentVolumeClaims("test").Get(ctx, "models", metav1.GetOptions{})
+	claim.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "ConfigMap", Name: "retention-anchor", UID: "anchor-uid"}}
+	if _, err := client.CoreV1().PersistentVolumeClaims("test").Update(ctx, claim, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	uninstalled = false
+	if err := e.uninstall(ctx, retirement); spec.ExitCode(err) != 11 || uninstalled {
+		t.Fatalf("retirement mutated after retained ownership changed: %v", err)
+	}
+	if err := e.verifyRetained(ctx, retirement.RetainedResources); spec.ExitCode(err) != 13 {
+		t.Fatalf("retained ownership change accepted: %v", err)
+	}
+	claim.OwnerReferences = nil
 	claim.UID = "replaced-pvc"
 	if _, err := client.CoreV1().PersistentVolumeClaims("test").Update(ctx, claim, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)

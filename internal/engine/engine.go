@@ -227,7 +227,7 @@ func (e *Engine) inspectSecrets(ctx context.Context, s *spec.TargetSnapshot) err
 	}
 	for i := range secrets.Items {
 		secret := &secrets.Items[i]
-		if err := checkOwner(secret.ObjectMeta, e.Site.Spec.ReleaseName); err != nil {
+		if err := checkOwner(&secret.ObjectMeta, e.Site.Spec.ReleaseName, nil); err != nil {
 			return err
 		}
 		bind(secret.Name).secret = secret
@@ -262,7 +262,15 @@ func (e *Engine) inspectSecrets(ctx context.Context, s *spec.TargetSnapshot) err
 			return err
 		}
 		if managed {
-			s.Resources = append(s.Resources, spec.ResourceFact{Kind: "Secret", Namespace: id.Namespace, Name: id.Name, UID: string(secret.UID), Fingerprint: value})
+			body, err := spec.Canonical(resourceBinding(secret.ObjectMeta, value))
+			if err != nil {
+				return errors.New("cannot encode Secret ownership binding")
+			}
+			owned, err := e.privateFingerprint(append([]byte("cinderlock.inspection-secret-ownership.v1\x00"), body...))
+			if err != nil {
+				return errors.New("cannot fingerprint Secret ownership binding")
+			}
+			s.Resources = append(s.Resources, spec.ResourceFact{Kind: "Secret", Namespace: id.Namespace, Name: id.Name, UID: string(secret.UID), Fingerprint: owned})
 			s.Facts = append(s.Facts, spec.Fact{Name: "readiness/Secret/" + id.Name, Value: "true", Status: "known", Source: "Kubernetes resource status"})
 		}
 		for name, key := range binding.refs {

@@ -51,6 +51,34 @@ cross-namespace object references block permission planning. The normal
 namespace identity lookup and a GPU profile's named node lookup are explicit
 read-only exceptions to namespaced application requests.
 
+## Qualified resource ownership
+
+A release selector identifies inventory scope; it does not establish ownership.
+Release-selected root resources require the exact Helm release name, release
+namespace, and `managed-by: Helm` marker. The shared ownership check rejects
+known GitOps tracking markers in labels or annotations and unqualified active
+controller ownership before restart or an admission update.
+
+PVC ownership facts distinguish `helm`, `statefulset`, and `read_retain` scope.
+A claim with an active StatefulSet owner can record the exact name, API kind,
+version, and UID of a separately qualified parent in the observed inventory.
+A replacement parent or unknown controller cannot establish that qualification.
+Default retained claims can remain read-and-retain inventory without Helm
+markers or controller references. Direct Helm PVC mutation requires `helm`
+scope; parent qualification and read-only inventory grant no such right.
+
+Ownership markers and references participate in resource bindings; reference
+ordering and ordinary metadata do not create drift. This is a bounded mapping
+of selected supported resources, not discovery of every controller or an
+adoption wizard.
+
+Explicitly kept external claims remain read-and-retain inventory. Their UIDs,
+ownership markers, and references are bound and rechecked before retirement and
+afterward. Recording a kept claim does not adopt it or grant mutation or
+deletion rights, and a name prefix cannot establish those rights. Existing
+checks still block retention when a declared removed parent would cause garbage
+collection.
+
 ## Target facts
 
 `target inspect` keeps partial observations when an API read fails. It records

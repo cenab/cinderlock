@@ -63,6 +63,8 @@ func TestInspectionSecretFingerprints(t *testing.T) {
 			}
 			if scope.managed {
 				secret.Labels["app.kubernetes.io/instance"] = "app"
+				secret.Labels["app.kubernetes.io/managed-by"] = "Helm"
+				secret.Annotations["meta.helm.sh/release-namespace"] = "test"
 				secret.Annotations["meta.helm.sh/release-name"] = "app"
 			}
 			if scope.pull {
@@ -146,6 +148,9 @@ func TestInspectionSecretFingerprints(t *testing.T) {
 				{"removed-selected-key", func(s *corev1.Secret) { delete(s.Data, "token") }, true},
 				{"type", func(s *corev1.Secret) { s.Type = corev1.SecretTypeTLS }, true},
 				{"uid-replacement", func(s *corev1.Secret) { s.UID = "replacement-uid" }, true},
+				{"owner-reference", func(s *corev1.Secret) {
+					s.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "ConfigMap", Name: "anchor", UID: "anchor-uid"}}
+				}, scope.managed},
 			} {
 				t.Run(change.name, func(t *testing.T) {
 					current := secret.DeepCopy()
@@ -330,11 +335,12 @@ func TestInspectionSecretOwnerAndNamespaceGuards(t *testing.T) {
 			e.Site.Spec.SecretRefs = map[string]spec.SecretRef{"api-token": {Name: "credentials", Key: "token"}}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 				Name: "credentials", Namespace: "test", UID: "secret-uid",
-				Labels: map[string]string{"app.kubernetes.io/instance": "app"},
+				Labels:      map[string]string{"app.kubernetes.io/instance": "app", "app.kubernetes.io/managed-by": "Helm"},
+				Annotations: map[string]string{"meta.helm.sh/release-name": "app", "meta.helm.sh/release-namespace": "test"},
 			}, Data: map[string][]byte{"token": []byte("inspection-private-owned-token")}}
 			switch conflict {
 			case "helm-owner":
-				secret.Annotations = map[string]string{"meta.helm.sh/release-name": "other"}
+				secret.Annotations["meta.helm.sh/release-name"] = "other"
 			case "gitops-owner":
 				secret.Labels["argocd.argoproj.io/instance"] = "other"
 			case "namespace":

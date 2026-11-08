@@ -121,7 +121,7 @@ func (e *Engine) AdmissionFindings(ctx context.Context, p spec.Plan, objects []m
 			if err == nil {
 				err = fmt.Errorf("empty current object")
 			}
-		} else if p.SourceVersion == "" || current.GetDeletionTimestamp() != nil || current.GetAnnotations()["meta.helm.sh/release-name"] != e.Site.Spec.ReleaseName || current.GetAnnotations()["meta.helm.sh/release-namespace"] != e.Site.Spec.Namespace {
+		} else if p.SourceVersion == "" || current.GetDeletionTimestamp() != nil || current.GetNamespace() != e.Site.Spec.Namespace || checkOwner(current, e.Site.Spec.ReleaseName, nil) != nil {
 			cancel()
 			findings = append(findings, spec.Finding{Code: "ADMISSION_OWNERSHIP_CONFLICT", Severity: "blocker", Message: "existing " + key + " is not an active object of the selected Helm release"})
 			continue

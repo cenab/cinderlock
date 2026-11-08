@@ -10,6 +10,7 @@ import (
 
 	"github.com/cenab/cinderlock/internal/spec"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/client-go/dynamic"
@@ -172,5 +173,44 @@ func TestAdmissionRefusesCrossNamespaceAndMalformedMetadata(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatal("invalid scope contacted API", calls)
+	}
+}
+
+func TestAdmissionRequiresQualifiedHelmOwnershipBeforeUpdate(t *testing.T) {
+	for _, scenario := range []string{"qualified", "tracking-annotation", "missing-manager", "unknown-controller"} {
+		t.Run(scenario, func(t *testing.T) {
+			current := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "settings", Namespace: "test", UID: "settings-uid", ResourceVersion: "1", Labels: map[string]string{"app.kubernetes.io/managed-by": "Helm"}, Annotations: map[string]string{"meta.helm.sh/release-name": "app", "meta.helm.sh/release-namespace": "test"}}}
+			switch scenario {
+			case "tracking-annotation":
+				current.Annotations["argocd.argoproj.io/tracking-id"] = "application:ConfigMap:test/settings"
+			case "missing-manager":
+				delete(current.Labels, "app.kubernetes.io/managed-by")
+			case "unknown-controller":
+				yes := true
+				current.OwnerReferences = []metav1.OwnerReference{{APIVersion: "operator.invalid/v1", Kind: "Application", Name: "owner", UID: "owner-uid", Controller: &yes}}
+			}
+			writes := 0
+			e, policy := admissionServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "GET" {
+					writes++
+					if r.Method != "PATCH" || r.URL.Query().Get("dryRun") != "All" {
+						t.Errorf("unexpected update: %s %s", r.Method, r.URL)
+					}
+				}
+				w.Header().Set("Content-Type", "application/json")
+				current.APIVersion, current.Kind = "v1", "ConfigMap"
+				json.NewEncoder(w).Encode(current)
+			})
+			e.HelmRunner = func(context.Context, ...string) ([]byte, error) {
+				return []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: settings\n"), nil
+			}
+			p := spec.Plan{SourceVersion: "1.0.0", Operations: []spec.Operation{{ID: "deploy", Type: "helm"}}}
+			objects := []map[string]any{{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": "settings"}}}
+			findings := e.AdmissionFindings(context.Background(), p, objects, policy)
+			blocked := scenario != "qualified"
+			if blockersForTest(findings) != blocked || blocked && writes != 0 || !blocked && writes != 1 {
+				t.Fatalf("wrong ownership admission: blocked=%v writes=%d findings=%+v", blockersForTest(findings), writes, findings)
+			}
+		})
 	}
 }

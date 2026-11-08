@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/cenab/cinderlock/internal/spec"
@@ -91,12 +92,26 @@ func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any
 		shared[label] = true
 		findings = append(findings, spec.Finding{Code: "PERMISSION_REQUIRED", Severity: "info", Message: "Kubernetes API caller requires " + label, Source: "target"})
 	}
+	claims := map[string]string{}
+	for _, fact := range p.Snapshot.Facts {
+		if fact.Status == "known" && strings.HasPrefix(fact.Name, "ownership/PersistentVolumeClaim/") {
+			claims[strings.TrimPrefix(fact.Name, "ownership/PersistentVolumeClaim/")] = fact.Value
+		}
+	}
 	disclose := func(step string, selected spec.Plan) error {
 		requirements, err := e.permissionRequirements(selected, objects, previous)
 		if err != nil {
 			return err
 		}
 		for _, attributes := range requirements {
+			if len(selected.Operations) > 0 && attributes.Resource == "persistentvolumeclaims" && attributes.Name != "" {
+				operation := selected.Operations[0].Type
+				// Helm's named gets identify changed objects; retained removals are omitted.
+				mutation := operation == "helm" && attributes.Verb == "get" || operation == "uninstall" && attributes.Verb == "delete"
+				if scope, observed := claims[attributes.Name]; mutation && observed && scope != "helm" {
+					findings = append(findings, spec.Finding{Code: "PVC_OWNERSHIP_UNQUALIFIED", Severity: "blocker", Message: "PVC " + attributes.Namespace + "/" + attributes.Name + " has " + scope + " scope; direct Helm mutation requires explicit Helm root ownership", Source: step})
+				}
+			}
 			label := permissionLabel(attributes)
 			if !shared[label] {
 				findings = append(findings, spec.Finding{Code: "PERMISSION_REQUIRED", Severity: "info", Message: "Kubernetes API caller requires " + label, Source: step})

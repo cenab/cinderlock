@@ -120,7 +120,7 @@ func (e *Engine) uninstallInventory(ctx context.Context) ([]spec.ResourceFact, e
 		}
 		key := kind + "/" + meta.Name
 		if !seen[key] {
-			retained = append(retained, spec.ResourceFact{Kind: kind, Namespace: e.Site.Spec.Namespace, Name: meta.Name, UID: string(meta.UID), Fingerprint: TargetIdentity(kind, string(meta.UID))})
+			retained = append(retained, spec.ResourceFact{Kind: kind, Namespace: e.Site.Spec.Namespace, Name: meta.Name, UID: string(meta.UID), Fingerprint: fingerprint(resourceBinding(meta, string(meta.UID)))})
 			seen[key] = true
 		}
 		return nil
@@ -219,6 +219,9 @@ func (e *Engine) verifyRetained(ctx context.Context, resources []spec.ResourceFa
 		}
 		if string(meta.UID) != resource.UID || meta.DeletionTimestamp != nil {
 			return spec.Err(13, "retained resource UID changed or deletion started: %s/%s", resource.Kind, resource.Name)
+		}
+		if fingerprint(resourceBinding(meta, string(meta.UID))) != resource.Fingerprint {
+			return spec.Err(13, "retained resource ownership changed: %s/%s", resource.Kind, resource.Name)
 		}
 	}
 	return nil

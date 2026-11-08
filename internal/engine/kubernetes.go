@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -112,6 +115,35 @@ func fingerprint(value any) string {
 	return "sha256:" + hex.EncodeToString(h[:])
 }
 
+func gitOpsOwnerKey(key string) bool {
+	return strings.HasPrefix(key, "argocd.argoproj.io/") || strings.HasPrefix(key, "helm.toolkit.fluxcd.io/") || strings.HasPrefix(key, "kustomize.toolkit.fluxcd.io/") || strings.HasPrefix(key, "fluxcd.io/")
+}
+
+func resourceBinding(meta metav1.ObjectMeta, value any) any {
+	markers := map[string]string{
+		"manager":   meta.Labels["app.kubernetes.io/managed-by"],
+		"release":   meta.Annotations["meta.helm.sh/release-name"],
+		"namespace": meta.Annotations["meta.helm.sh/release-namespace"],
+	}
+	for key, value := range meta.Labels {
+		if gitOpsOwnerKey(key) {
+			markers["label/"+key] = value
+		}
+	}
+	for key, value := range meta.Annotations {
+		if gitOpsOwnerKey(key) {
+			markers["annotation/"+key] = value
+		}
+	}
+	owners := slices.Clone(meta.OwnerReferences)
+	sort.Slice(owners, func(i, j int) bool { return owners[i].UID < owners[j].UID })
+	return struct {
+		Markers map[string]string       `json:"markers"`
+		Owners  []metav1.OwnerReference `json:"owners,omitempty"`
+		Value   any                     `json:"value"`
+	}{markers, owners, value}
+}
+
 func TargetIdentity(server, namespaceUID string) string {
 	return fingerprint(struct{ Server, NamespaceUID string }{server, namespaceUID})
 }
@@ -198,11 +230,12 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 		o.Facts = append(o.Facts, inventoryFact("Deployment", len(ds.Items), nil))
 	}
 	for _, d := range ds.Items {
-		if err := checkOwner(d.ObjectMeta, k.Release); err != nil {
+		if err := checkOwner(&d.ObjectMeta, k.Release, nil); err != nil {
 			return o, err
 		}
-		o.Resources = append(o.Resources, Resource{Kind: "Deployment", Name: d.Name, UID: string(d.UID), Fingerprint: fingerprint(d.Spec), Ready: deploymentRolledOut(&d)})
+		o.Resources = append(o.Resources, Resource{Kind: "Deployment", Name: d.Name, UID: string(d.UID), Fingerprint: fingerprint(resourceBinding(d.ObjectMeta, d.Spec)), Ready: deploymentRolledOut(&d)})
 	}
+	parents := map[types.UID]metav1.OwnerReference{}
 	sts, err := k.Client.AppsV1().StatefulSets(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
 		o.Facts = append(o.Facts, inventoryFact("StatefulSet", 0, err))
@@ -211,10 +244,13 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 		o.Facts = append(o.Facts, inventoryFact("StatefulSet", len(sts.Items), nil))
 	}
 	for _, s := range sts.Items {
-		if err := checkOwner(s.ObjectMeta, k.Release); err != nil {
+		if err := checkOwner(&s.ObjectMeta, k.Release, nil); err != nil {
 			return o, err
 		}
-		o.Resources = append(o.Resources, Resource{Kind: "StatefulSet", Name: s.Name, UID: string(s.UID), Fingerprint: fingerprint(s.Spec), Ready: s.Status.ObservedGeneration >= s.Generation && s.Status.ReadyReplicas >= replicas(s.Spec.Replicas)})
+		if s.UID != "" {
+			parents[s.UID] = metav1.OwnerReference{APIVersion: "apps/v1", Kind: "StatefulSet", Name: s.Name, UID: s.UID}
+		}
+		o.Resources = append(o.Resources, Resource{Kind: "StatefulSet", Name: s.Name, UID: string(s.UID), Fingerprint: fingerprint(resourceBinding(s.ObjectMeta, s.Spec)), Ready: s.Status.ObservedGeneration >= s.Generation && s.Status.ReadyReplicas >= replicas(s.Spec.Replicas)})
 	}
 	cms, err := k.Client.CoreV1().ConfigMaps(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
@@ -224,13 +260,13 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 		o.Facts = append(o.Facts, inventoryFact("ConfigMap", len(cms.Items), nil))
 	}
 	for _, c := range cms.Items {
-		if err := checkOwner(c.ObjectMeta, k.Release); err != nil {
+		if err := checkOwner(&c.ObjectMeta, k.Release, nil); err != nil {
 			return o, err
 		}
-		o.Resources = append(o.Resources, Resource{Kind: "ConfigMap", Name: c.Name, UID: string(c.UID), Fingerprint: fingerprint(struct {
+		o.Resources = append(o.Resources, Resource{Kind: "ConfigMap", Name: c.Name, UID: string(c.UID), Fingerprint: fingerprint(resourceBinding(c.ObjectMeta, struct {
 			Data       map[string]string
 			BinaryData map[string][]byte
-		}{c.Data, c.BinaryData}), Ready: true})
+		}{c.Data, c.BinaryData})), Ready: true})
 	}
 	services, err := k.Client.CoreV1().Services(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
@@ -240,10 +276,10 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 		o.Facts = append(o.Facts, inventoryFact("Service", len(services.Items), nil))
 	}
 	for _, service := range services.Items {
-		if err := checkOwner(service.ObjectMeta, k.Release); err != nil {
+		if err := checkOwner(&service.ObjectMeta, k.Release, nil); err != nil {
 			return o, err
 		}
-		o.Resources = append(o.Resources, Resource{Kind: "Service", Name: service.Name, UID: string(service.UID), Fingerprint: fingerprint(service.Spec), Ready: true})
+		o.Resources = append(o.Resources, Resource{Kind: "Service", Name: service.Name, UID: string(service.UID), Fingerprint: fingerprint(resourceBinding(service.ObjectMeta, service.Spec)), Ready: true})
 	}
 	pvcs, err := k.Client.CoreV1().PersistentVolumeClaims(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
@@ -253,10 +289,27 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 		o.Facts = append(o.Facts, inventoryFact("PersistentVolumeClaim", len(pvcs.Items), nil))
 	}
 	for _, pvc := range pvcs.Items {
-		if err := checkOwner(pvc.ObjectMeta, k.Release); err != nil {
-			return o, err
+		var parent *metav1.OwnerReference
+		for _, owner := range pvc.OwnerReferences {
+			if owner.Controller != nil && *owner.Controller {
+				if expected, ok := parents[owner.UID]; ok {
+					parent = &expected
+				}
+			}
 		}
-		o.Resources = append(o.Resources, Resource{Kind: "PersistentVolumeClaim", Name: pvc.Name, UID: string(pvc.UID), Fingerprint: fingerprint(pvc.Spec), Ready: pvc.Status.Phase == corev1.ClaimBound})
+		scope := "read_retain"
+		source := "observed PVC ownership scope; read/retain grants no object mutation or deletion rights"
+		if parent != nil {
+			if checkOwner(&pvc.ObjectMeta, k.Release, parent) == nil {
+				scope = "statefulset"
+				source = "qualified StatefulSet " + parent.Name + " UID=" + string(parent.UID) + " in namespace " + k.Namespace
+			}
+		} else if checkOwner(&pvc.ObjectMeta, k.Release, nil) == nil {
+			scope = "helm"
+			source = "qualified Helm release " + k.Release + " in namespace " + k.Namespace
+		}
+		o.Facts = append(o.Facts, spec.Fact{Name: "ownership/PersistentVolumeClaim/" + pvc.Name, Value: scope, Status: "known", Source: source})
+		o.Resources = append(o.Resources, Resource{Kind: "PersistentVolumeClaim", Name: pvc.Name, UID: string(pvc.UID), Fingerprint: fingerprint(resourceBinding(pvc.ObjectMeta, pvc.Spec)), Ready: pvc.Status.Phase == corev1.ClaimBound})
 	}
 	return o, nil
 }
@@ -287,14 +340,37 @@ func deploymentRolledOut(d *appsv1.Deployment) bool {
 	return d.Status.ObservedGeneration >= d.Generation && d.Status.UpdatedReplicas == desired && d.Status.ReadyReplicas >= desired && d.Status.AvailableReplicas >= desired && d.Status.Replicas == desired && (d.Status.TerminatingReplicas == nil || *d.Status.TerminatingReplicas == 0)
 }
 
-func checkOwner(meta metav1.ObjectMeta, release string) error {
-	for key := range meta.Labels {
-		if strings.HasPrefix(key, "argocd.argoproj.io/") || strings.HasPrefix(key, "helm.toolkit.fluxcd.io/") || strings.HasPrefix(key, "kustomize.toolkit.fluxcd.io/") {
-			return fmt.Errorf("resource %s has a competing GitOps owner", meta.Name)
+func checkOwner(meta metav1.Object, release string, parent *metav1.OwnerReference) error {
+	labels, annotations, objectNamespace := meta.GetLabels(), meta.GetAnnotations(), meta.GetNamespace()
+	if objectNamespace == "" {
+		return spec.Err(16, "resource namespace is unavailable for ownership mapping")
+	}
+	for _, markers := range []map[string]string{labels, annotations} {
+		for key := range markers {
+			if gitOpsOwnerKey(key) {
+				return spec.Err(16, "resource %s has a competing GitOps owner", meta.GetName())
+			}
 		}
 	}
-	if owner := meta.Annotations["meta.helm.sh/release-name"]; owner != "" && owner != release {
-		return fmt.Errorf("resource %s belongs to another Helm release", meta.Name)
+	controlled := false
+	for _, owner := range meta.GetOwnerReferences() {
+		if owner.Controller == nil || !*owner.Controller {
+			continue
+		}
+		if parent == nil || parent.UID == "" || owner.UID != parent.UID || owner.Name != parent.Name || owner.Kind != parent.Kind || owner.APIVersion != parent.APIVersion {
+			return spec.Err(16, "resource %s has unsupported active controller ownership", meta.GetName())
+		}
+		controlled = true
+	}
+	name, namespace, manager := annotations["meta.helm.sh/release-name"], annotations["meta.helm.sh/release-namespace"], labels["app.kubernetes.io/managed-by"]
+	if parent != nil && controlled {
+		if name != "" && name != release || namespace != "" && namespace != objectNamespace || manager != "" && manager != "Helm" {
+			return spec.Err(16, "resource %s has ownership markers conflicting with its qualified parent", meta.GetName())
+		}
+		return nil
+	}
+	if name != release || namespace != objectNamespace || manager != "Helm" {
+		return spec.Err(16, "resource %s is not explicitly owned by the selected Helm release", meta.GetName())
 	}
 	return nil
 }
