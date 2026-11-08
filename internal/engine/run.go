@@ -370,6 +370,10 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	if err != nil {
 		return fail(err)
 	}
+	if err := targetObservationError(final); err != nil {
+		result.Domains["readiness"] = "blocked"
+		return fail(err)
+	}
 	ready := true
 	for _, fact := range final.Facts {
 		if strings.HasPrefix(fact.Name, "readiness/") && fact.Value != "true" {

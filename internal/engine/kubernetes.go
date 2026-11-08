@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -41,14 +44,11 @@ type Resource struct {
 }
 
 type Observation struct {
-	TargetID          string            `json:"targetID"`
-	NamespaceUID      string            `json:"namespaceUID"`
-	Server            string            `json:"server"`
-	KubernetesVersion string            `json:"kubernetesVersion"`
-	Resources         []Resource        `json:"resources"`
-	GPUs              map[string]string `json:"gpuAllocatableByNode"`
-	GPUEvidence       string            `json:"gpuEvidence"`
-	Findings          []string          `json:"findings"`
+	TargetID     string      `json:"targetID"`
+	NamespaceUID string      `json:"namespaceUID"`
+	Server       string      `json:"server"`
+	Resources    []Resource  `json:"resources"`
+	Facts        []spec.Fact `json:"facts"`
 }
 
 func NewKubernetes(kubeconfig, contextName, namespace, release string) (*Kubernetes, error) {
@@ -131,26 +131,71 @@ func (e *Engine) TargetIdentity(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
-	ns, err := k.Client.CoreV1().Namespaces().Get(ctx, k.Namespace, metav1.GetOptions{})
-	if err != nil {
-		return Observation{}, fmt.Errorf("inspect namespace: %w", err)
+func observationStatus(err error) string {
+	switch {
+	case err == nil:
+		return "known"
+	case apierrors.IsNotFound(err), errors.Is(err, os.ErrNotExist):
+		return "absent"
+	case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err), errors.Is(err, os.ErrPermission):
+		return "denied"
+	case apierrors.IsResourceExpired(err), apierrors.IsGone(err):
+		return "stale"
+	default:
+		return "unavailable"
 	}
-	server := ""
-	if k.Config != nil {
-		server = k.Config.Host
-	}
-	o := Observation{TargetID: TargetIdentity(server, string(ns.UID)), NamespaceUID: string(ns.UID), Server: server, Resources: []Resource{}, GPUs: map[string]string{}, GPUEvidence: "not_tested", Findings: []string{}}
-	version, err := k.Client.Discovery().ServerVersion()
+}
+
+func inventoryFact(kind string, count int, err error) spec.Fact {
+	fact := spec.Fact{Name: "inventory/" + kind, Status: observationStatus(err), Source: "Kubernetes release-selector list"}
 	if err == nil {
-		o.KubernetesVersion = version.GitVersion
-	} else {
-		o.Findings = append(o.Findings, "Kubernetes server version unavailable")
+		fact.Value = strconv.Itoa(count)
+		if count == 0 {
+			fact.Status = "absent"
+		}
 	}
+	return fact
+}
+
+func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
+	o := Observation{Resources: []Resource{}, Facts: []spec.Fact{}}
+	if k.Config != nil {
+		o.Server = k.Config.Host
+	}
+	api := spec.Fact{Name: "kubernetes.api", Value: o.Server, Status: "known", Source: "explicit Kubernetes REST configuration"}
+	if o.Server == "" {
+		api.Status = "unavailable"
+	}
+	o.Facts = append(o.Facts, api)
+	ns, err := k.Client.CoreV1().Namespaces().Get(ctx, k.Namespace, metav1.GetOptions{})
+	namespace := spec.Fact{Name: "namespace.identity", Status: observationStatus(err), Source: "Kubernetes namespace UID"}
+	if err == nil {
+		namespace.Value = string(ns.UID)
+		if namespace.Value == "" {
+			namespace.Status = "unavailable"
+		}
+	}
+	o.Facts = append(o.Facts, namespace)
+	if api.Status != "known" || namespace.Status != "known" {
+		return o, nil
+	}
+	o.NamespaceUID = namespace.Value
+	o.TargetID = TargetIdentity(o.Server, o.NamespaceUID)
+	version, err := k.Client.Discovery().ServerVersion()
+	fact := spec.Fact{Name: "kubernetes.version", Status: observationStatus(err), Source: "Kubernetes discovery"}
+	if err == nil && version != nil && version.GitVersion != "" {
+		fact.Value = version.GitVersion
+	} else if err == nil {
+		fact.Status = "unavailable"
+	}
+	o.Facts = append(o.Facts, fact)
 	selector := "app.kubernetes.io/instance=" + k.Release
 	ds, err := k.Client.AppsV1().Deployments(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		return o, fmt.Errorf("inspect deployments: %w", err)
+		o.Facts = append(o.Facts, inventoryFact("Deployment", 0, err))
+		ds = &appsv1.DeploymentList{}
+	} else {
+		o.Facts = append(o.Facts, inventoryFact("Deployment", len(ds.Items), nil))
 	}
 	for _, d := range ds.Items {
 		if err := checkOwner(d.ObjectMeta, k.Release); err != nil {
@@ -160,7 +205,10 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 	}
 	sts, err := k.Client.AppsV1().StatefulSets(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		return o, fmt.Errorf("inspect statefulsets: %w", err)
+		o.Facts = append(o.Facts, inventoryFact("StatefulSet", 0, err))
+		sts = &appsv1.StatefulSetList{}
+	} else {
+		o.Facts = append(o.Facts, inventoryFact("StatefulSet", len(sts.Items), nil))
 	}
 	for _, s := range sts.Items {
 		if err := checkOwner(s.ObjectMeta, k.Release); err != nil {
@@ -170,7 +218,10 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 	}
 	cms, err := k.Client.CoreV1().ConfigMaps(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		return o, fmt.Errorf("inspect application configmaps: %w", err)
+		o.Facts = append(o.Facts, inventoryFact("ConfigMap", 0, err))
+		cms = &corev1.ConfigMapList{}
+	} else {
+		o.Facts = append(o.Facts, inventoryFact("ConfigMap", len(cms.Items), nil))
 	}
 	for _, c := range cms.Items {
 		if err := checkOwner(c.ObjectMeta, k.Release); err != nil {
@@ -183,7 +234,10 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 	}
 	services, err := k.Client.CoreV1().Services(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		return o, fmt.Errorf("inspect application services: %w", err)
+		o.Facts = append(o.Facts, inventoryFact("Service", 0, err))
+		services = &corev1.ServiceList{}
+	} else {
+		o.Facts = append(o.Facts, inventoryFact("Service", len(services.Items), nil))
 	}
 	for _, service := range services.Items {
 		if err := checkOwner(service.ObjectMeta, k.Release); err != nil {
@@ -193,23 +247,16 @@ func (k *Kubernetes) Observe(ctx context.Context) (Observation, error) {
 	}
 	pvcs, err := k.Client.CoreV1().PersistentVolumeClaims(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
-		return o, fmt.Errorf("inspect application volumes: %w", err)
+		o.Facts = append(o.Facts, inventoryFact("PersistentVolumeClaim", 0, err))
+		pvcs = &corev1.PersistentVolumeClaimList{}
+	} else {
+		o.Facts = append(o.Facts, inventoryFact("PersistentVolumeClaim", len(pvcs.Items), nil))
 	}
 	for _, pvc := range pvcs.Items {
 		if err := checkOwner(pvc.ObjectMeta, k.Release); err != nil {
 			return o, err
 		}
 		o.Resources = append(o.Resources, Resource{Kind: "PersistentVolumeClaim", Name: pvc.Name, UID: string(pvc.UID), Fingerprint: fingerprint(pvc.Spec), Ready: pvc.Status.Phase == corev1.ClaimBound})
-	}
-	secrets, err := k.Client.CoreV1().Secrets(k.Namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
-	if err != nil {
-		return o, fmt.Errorf("inspect application Secret metadata: %w", err)
-	}
-	for _, secret := range secrets.Items {
-		if err := checkOwner(secret.ObjectMeta, k.Release); err != nil {
-			return o, err
-		}
-		o.Resources = append(o.Resources, Resource{Kind: "Secret", Name: secret.Name, UID: string(secret.UID), Fingerprint: fingerprint(struct{ UID, Version string }{string(secret.UID), secret.ResourceVersion}), Ready: true})
 	}
 	return o, nil
 }

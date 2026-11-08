@@ -284,8 +284,19 @@ func (e *Engine) configurationReview(ctx context.Context, p spec.Plan, v *bundle
 	if err != nil {
 		return review, err
 	}
+	for _, field := range contract.Fields {
+		review.Fields = append(review.Fields, spec.ConfigurationFieldReview{Path: field.Path, Owner: field.Owner, Change: "not_compared"})
+	}
+	sortConfigurationReview(review)
 	baseline := map[string]any{}
 	if p.Snapshot.HelmRevision == 0 && p.Snapshot.InstalledVersion == "" {
+		absent := false
+		for _, fact := range p.Snapshot.Facts {
+			absent = absent || fact.Name == "helm.release" && fact.Status == "absent"
+		}
+		if !absent {
+			return review, spec.Err(10, "configuration comparison requires a conclusive Helm release observation")
+		}
 		review.ComparisonStatus = "not_installed"
 	} else if p.Snapshot.HelmRevision > 0 {
 		data, err := e.helm(ctx, "get", "values", e.Site.Spec.ReleaseName, "--revision", strconv.FormatInt(p.Snapshot.HelmRevision, 10), "--all", "--output", "json")
@@ -293,17 +304,13 @@ func (e *Engine) configurationReview(ctx context.Context, p spec.Plan, v *bundle
 			baseline, err = configurationDocument(data)
 		}
 		if err != nil {
-			for _, field := range contract.Fields {
-				review.Fields = append(review.Fields, spec.ConfigurationFieldReview{Path: field.Path, Owner: field.Owner, Change: "not_compared"})
-			}
-			sortConfigurationReview(review)
 			return review, spec.Err(10, "configuration comparison is unavailable for the pinned Helm revision")
 		}
 		review.ComparisonStatus = "available"
 	} else {
 		return review, spec.Err(10, "configuration comparison needs an exact prior Helm revision")
 	}
-	for _, field := range contract.Fields {
+	for i, field := range review.Fields {
 		before, had := configurationLookup(baseline, field.Path)
 		after, has := configurationLookup(resolved, field.Path)
 		change := "unchanged"
@@ -322,9 +329,8 @@ func (e *Engine) configurationReview(ctx context.Context, p spec.Plan, v *bundle
 				change = "changed"
 			}
 		}
-		review.Fields = append(review.Fields, spec.ConfigurationFieldReview{Path: field.Path, Owner: field.Owner, Change: change})
+		review.Fields[i].Change = change
 	}
-	sortConfigurationReview(review)
 	return review, nil
 }
 

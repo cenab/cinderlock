@@ -131,6 +131,11 @@ func TestExecutionProfileAllowsExplicitRegistryCredentialFile(t *testing.T) {
 	}
 	e.Site.Spec.SecretRefs = map[string]spec.SecretRef{"registry": {File: credential}}
 	e.Site.Spec.RegistryAuthRef = "registry"
+	snapshot, err := e.Inspect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Snapshot = snapshot
 	for _, finding := range e.ExecutionFindings(context.Background(), p, verified) {
 		if finding.Severity == "blocker" {
 			t.Fatalf("supported registry file reference rejected: %#v", finding)

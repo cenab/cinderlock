@@ -16,6 +16,8 @@ import (
 
 	"github.com/cenab/cinderlock/internal/bundle"
 	"github.com/cenab/cinderlock/internal/spec"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func TestConfigurationNestedSiteOverrideCannotReplaceVendorValue(t *testing.T) {
@@ -355,9 +357,42 @@ func TestConfigurationPlanReviewAdmissionAndLegacyScope(t *testing.T) {
 	if err := e.checkConfigurationPlan(context.Background(), planned, v); spec.ExitCode(err) != 11 {
 		t.Fatal("changed effective values escaped the keyed configuration binding when rendered resources stayed fixed")
 	}
-	install := spec.Plan{Header: spec.NewHeader("Plan"), Snapshot: spec.TargetSnapshot{}}
+	install := spec.Plan{Header: spec.NewHeader("Plan"), Snapshot: spec.TargetSnapshot{Facts: []spec.Fact{{Name: "helm.release", Status: "absent", Source: "confirmed Helm history absence"}}}}
 	review, err := e.configurationReview(context.Background(), install, v)
 	if err != nil || review.ComparisonStatus != "not_installed" || review.Fields[0].Change != "added" {
 		t.Fatal("fresh installation did not explicitly identify its empty comparison baseline")
+	}
+}
+
+func TestConfigurationFailedHelmObservationCannotBecomeInstallationBaseline(t *testing.T) {
+	for _, failure := range []struct {
+		name string
+		err  error
+	}{
+		{"history-unavailable", errors.New("PRIVATE-HISTORY-FAILURE")},
+		{"storage-api-absent", apierrors.NewNotFound(schema.GroupResource{Resource: "secrets"}, "history")},
+		{"skipped", nil},
+	} {
+		t.Run(failure.name, func(t *testing.T) {
+			e, _, _ := fixture(t)
+			v := chartFixture(t, e)
+			v.Index.Lock.Release.Spec.Deployment.Configuration = &spec.ConfigurationContract{Version: 1, Fields: []spec.ConfigurationField{{Path: "setting", Owner: "site", Type: "string"}}}
+			snapshot := spec.TargetSnapshot{}
+			if failure.err != nil {
+				e.HelmRunner = func(context.Context, ...string) ([]byte, error) { return nil, failure.err }
+				var err error
+				snapshot, err = e.Inspect(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			review, err := e.configurationReview(context.Background(), spec.Plan{Snapshot: snapshot}, v)
+			if err == nil || review.ComparisonStatus != "not_compared" {
+				t.Fatalf("failed release read became installation baseline: status=%s err=%v", review.ComparisonStatus, err)
+			}
+			if len(review.Fields) != 1 || review.Fields[0].Change != "not_compared" {
+				t.Fatalf("failed read yielded a guessed field comparison: %+v", review.Fields)
+			}
+		})
 	}
 }

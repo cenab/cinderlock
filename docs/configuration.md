@@ -122,11 +122,36 @@ execution.
 Comparisons read the exact pinned Helm revision, including after Cinderlock's
 own Helm operations advance the current revision. Missing or unreadable pinned
 history yields `not_compared` fields and a blocking finding for an enforced
-contract. Cinderlock does not substitute the latest values as a baseline. A new
-installation explicitly uses `not_installed` and an empty prior baseline.
+contract. Cinderlock does not substitute the latest values as a baseline.
+Only a conclusive absent Helm observation uses `not_installed` and an empty
+prior baseline. Failed or skipped observations remain `not_compared`.
 
 Helm schema and template failures remain failures, but their raw error text is
 withheld from plan findings because it can echo configuration values.
+
+## Secret drift
+
+Target inspection binds Secret identity and content with the existing private
+local HMAC key. The saved facts contain keyed fingerprints, never credential
+values or plain credential hashes. Kubernetes bindings include namespace, name,
+UID, and type. Ordinary annotations, labels, and resource-version churn do not
+invalidate a plan. Ownership changes and labels that change release inventory
+membership still affect eligibility.
+
+Release-managed Secrets bind every data key because application workloads can
+consume keys outside a Site reference. Image-pull and whole-Secret references
+also bind all data. Otherwise, external key-scoped references to the same Secret
+bind their combined selected keys; unrelated keys do not create drift. Missing
+keys remain absent facts rather than successful bindings.
+
+Local-file references bind the captured bytes of a private regular file of at
+most one MiB. Touching its timestamp does not change the binding; changing bytes
+at the same size and timestamp does. Leaf symlinks and nonregular files are
+refused. A Site reference cannot reuse an image-pull fact's reserved name.
+
+Saved plans and checkpoints that predate this inventory and content-binding
+format require fresh inspection and a newly authorized plan. Keep the private
+local state key available for subsequent comparisons.
 
 ## Keep the limits visible
 

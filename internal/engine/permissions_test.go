@@ -232,3 +232,55 @@ func TestNativeSeedPermissionIncludesAttachOnlyForStream(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionPlanDisclosesStepRequirementsAndIdentities(t *testing.T) {
+	e, requests := permissionServer(t, func(a authorizationv1.ResourceAttributes) authorizationv1.SubjectAccessReviewStatus {
+		if a.Resource == "jobs" && a.Verb == "create" {
+			return authorizationv1.SubjectAccessReviewStatus{Denied: true}
+		}
+		return authorizationv1.SubjectAccessReviewStatus{Allowed: true}
+	})
+	e.Site.Spec.SecretRefs = map[string]spec.SecretRef{"token": {Name: "credentials", Key: "token"}}
+	p := spec.Plan{Operations: []spec.Operation{{ID: "migration", Type: "migrate"}, {ID: "deploy", Type: "helm"}}, Checks: []spec.Check{{ID: "acceptance", Type: "job", SecretRefs: []string{"token"}}}}
+	objects := []map[string]any{{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": "app"}, "spec": map[string]any{"template": map[string]any{"spec": map[string]any{"serviceAccountName": "application", "automountServiceAccountToken": true}}}}}
+	objects = append(objects,
+		map[string]any{"apiVersion": "apps/v1", "kind": "StatefulSet", "metadata": map[string]any{"name": "default"}, "spec": map[string]any{"template": map[string]any{"spec": map[string]any{}}}},
+		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": "alias"}, "spec": map[string]any{"template": map[string]any{"spec": map[string]any{"serviceAccount": "compat"}}}},
+	)
+	findings := e.PermissionFindings(context.Background(), p, objects)
+	for _, want := range []struct{ source, code, value string }{
+		{"operation/migration", "PERMISSION_REQUIRED", "create jobs.batch"},
+		{"check/acceptance", "PERMISSION_REQUIRED", "create jobs.batch"},
+		{"check/acceptance", "PERMISSION_REQUIRED", "get secrets/credentials"},
+		{"operation/deploy", "PERMISSION_REQUIRED", "create deployments.apps"},
+		{"operation/migration", "CAPABILITY_REQUIRED", "migrate"},
+		{"check/acceptance", "CAPABILITY_REQUIRED", "job"},
+		{"operation/migration", "SERVICE_ACCOUNT_REQUIRED", "tenant-a/default"},
+		{"check/acceptance", "SERVICE_ACCOUNT_REQUIRED", "tenant-a/default"},
+		{"operation/deploy", "SERVICE_ACCOUNT_REQUIRED", "tenant-a/application"},
+		{"operation/deploy", "SERVICE_ACCOUNT_REQUIRED", "tenant-a/default"},
+		{"operation/deploy", "SERVICE_ACCOUNT_REQUIRED", "tenant-a/compat"},
+	} {
+		found := false
+		for _, finding := range findings {
+			found = found || finding.Source == want.source && finding.Code == want.code && strings.Contains(finding.Message, want.value)
+		}
+		if !found {
+			t.Fatalf("missing %s %s %s", want.source, want.code, want.value)
+		}
+	}
+	denied := false
+	for _, finding := range findings {
+		denied = denied || finding.Code == "PERMISSION_DENIED" && finding.Severity == "blocker" && strings.Contains(finding.Message, "create jobs.batch")
+	}
+	if !denied {
+		t.Fatal("step disclosure lost the denial")
+	}
+	seen := map[authorizationv1.ResourceAttributes]bool{}
+	for _, request := range requests() {
+		if seen[request] {
+			t.Fatalf("same caller permission queried repeatedly: %+v", request)
+		}
+		seen[request] = true
+	}
+}

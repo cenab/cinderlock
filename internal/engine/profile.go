@@ -15,7 +15,10 @@ import (
 // ExecutionFindings checks every selected recipe before the first mutation.
 // Permission, admission and actual workflow observations remain separate checks.
 func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.Verified) []spec.Finding {
-	findings := []spec.Finding{}
+	findings := e.secretFindings(p, p.Snapshot, v)
+	if err := targetObservationError(p.Snapshot); err != nil {
+		findings = append(findings, spec.Finding{Code: "TARGET_OBSERVATION_INCOMPLETE", Severity: "blocker", Message: err.Error(), Source: "target inspection"})
+	}
 	block := func(code, message string) {
 		findings = append(findings, spec.Finding{Code: code, Severity: "blocker", Message: message, Source: "supported execution profile"})
 	}
@@ -26,12 +29,6 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 	checkImage := func(ref, id, code string) {
 		if _, err := e.image(v, ref); err != nil {
 			block(code, "selected recipe needs a locked internal image: "+id)
-		}
-	}
-	available := map[string]bool{}
-	for _, fact := range p.Snapshot.Facts {
-		if fact.Status == "known" {
-			available[fact.Name] = true
 		}
 	}
 	checkSecrets := func(refs []string, id string) {
@@ -50,9 +47,6 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 			}
 			if ref.Name == "" || ref.Key == "" || ref.Namespace != "" && ref.Namespace != e.Site.Spec.Namespace {
 				block("JOB_SECRET_SCOPE_UNSUPPORTED", "selected Job secret needs an explicit name/key in the target namespace: "+id+"/"+name)
-			}
-			if !available["secret/"+name] {
-				block("JOB_SECRET_UNAVAILABLE", "selected Job secret is absent, denied or unreadable: "+id+"/"+name)
 			}
 		}
 	}
@@ -180,6 +174,48 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 		}
 	}
 	return append(findings, e.fixtureFindings(ctx, p, v)...)
+}
+
+func (e *Engine) secretFindings(p spec.Plan, snapshot spec.TargetSnapshot, v *bundle.Verified) []spec.Finding {
+	required := []string{}
+	add := func(refs []string) {
+		for _, ref := range refs {
+			required = append(required, "secret/"+ref)
+		}
+	}
+	for _, op := range p.Operations {
+		add(op.SecretRefs)
+	}
+	for _, check := range p.Checks {
+		add(check.SecretRefs)
+	}
+	if p.Kind != "RetirementPlan" {
+		if v.Index.Lock.Release.Spec.License != nil {
+			add([]string{v.Index.Lock.Release.Spec.License.SecretRef})
+		}
+		if e.Site.Spec.RegistryAuthRef != "" {
+			add([]string{e.Site.Spec.RegistryAuthRef})
+		}
+		for _, name := range e.Site.Spec.ImagePullSecrets {
+			required = append(required, "secret/image-pull-"+name)
+		}
+	}
+	facts := map[string]spec.Fact{}
+	for _, fact := range snapshot.Facts {
+		facts[fact.Name] = fact
+	}
+	slices.Sort(required)
+	findings := []spec.Finding{}
+	for _, name := range slices.Compact(required) {
+		fact, ok := facts[name]
+		if !ok {
+			fact = spec.Fact{Status: "unknown", Source: "Site Secret reference"}
+		}
+		if fact.Status != "known" {
+			findings = append(findings, spec.Finding{Code: "SECRET_" + strings.ToUpper(fact.Status), Severity: "blocker", Message: "required " + name + " is " + fact.Status, Source: fact.Source})
+		}
+	}
+	return findings
 }
 
 func (e *Engine) addExecutionFindings(ctx context.Context, p *spec.Plan, v *bundle.Verified, policy spec.TrustPolicy) {

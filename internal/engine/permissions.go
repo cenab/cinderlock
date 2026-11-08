@@ -54,7 +54,12 @@ func (e *Engine) PermissionFindings(ctx context.Context, p spec.Plan, objects []
 	if err != nil {
 		return []spec.Finding{{Code: "PERMISSION_SCOPE_UNAVAILABLE", Severity: "blocker", Message: err.Error()}}
 	}
-	findings := []spec.Finding{{Code: "PERMISSION_SCOPE", Severity: "info", Message: "authorization of the selected kubeconfig identity only; admission, quotas, future permission changes, and workload identities are not verified", Source: "authorization.k8s.io/v1 SelfSubjectAccessReview"}}
+	steps, err := e.permissionSteps(p, objects, previous)
+	if err != nil {
+		return []spec.Finding{{Code: "PERMISSION_SCOPE_UNAVAILABLE", Severity: "blocker", Message: err.Error()}}
+	}
+	findings := []spec.Finding{{Code: "PERMISSION_SCOPE", Severity: "info", Message: "authorization of the selected kubeconfig identity at query time only; each step includes the common target observer and coordination scope; admission, quotas, future permission changes, and workload service-account grants are unverified", Source: "authorization.k8s.io/v1 SelfSubjectAccessReview"}}
+	findings = append(findings, steps...)
 	for _, attributes := range requirements {
 		if ctx.Err() != nil {
 			return append(findings, spec.Finding{Code: "PERMISSION_UNAVAILABLE", Severity: "blocker", Message: "authorization preflight was interrupted before all requirements were evaluated"})
@@ -72,6 +77,90 @@ func (e *Engine) PermissionFindings(ctx context.Context, p spec.Plan, objects []
 		findings = append(findings, finding)
 	}
 	return findings
+}
+
+func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any) ([]spec.Finding, error) {
+	common, err := e.permissionRequirements(spec.Plan{}, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	shared := map[string]bool{}
+	findings := []spec.Finding{}
+	for _, attributes := range common {
+		label := permissionLabel(attributes)
+		shared[label] = true
+		findings = append(findings, spec.Finding{Code: "PERMISSION_REQUIRED", Severity: "info", Message: "Kubernetes API caller requires " + label, Source: "target"})
+	}
+	disclose := func(step string, selected spec.Plan) error {
+		requirements, err := e.permissionRequirements(selected, objects, previous)
+		if err != nil {
+			return err
+		}
+		for _, attributes := range requirements {
+			label := permissionLabel(attributes)
+			if !shared[label] {
+				findings = append(findings, spec.Finding{Code: "PERMISSION_REQUIRED", Severity: "info", Message: "Kubernetes API caller requires " + label, Source: step})
+			}
+		}
+		return nil
+	}
+	capability := func(step, action string) {
+		findings = append(findings, spec.Finding{Code: "CAPABILITY_REQUIRED", Severity: "info", Message: "requires Site and TrustPolicy action " + action, Source: step})
+	}
+	worker := func(step string) {
+		findings = append(findings, spec.Finding{Code: "SERVICE_ACCOUNT_REQUIRED", Severity: "info", Message: "Cinderlock worker uses ServiceAccount " + e.Site.Spec.Namespace + "/default; automountServiceAccountToken=false; service-account API grants are unverified", Source: step})
+	}
+	for _, op := range p.Operations {
+		step := "operation/" + op.ID
+		if err := disclose(step, spec.Plan{SourceVersion: p.SourceVersion, Operations: []spec.Operation{op}}); err != nil {
+			return nil, err
+		}
+		capability(step, op.Type)
+		if op.Type == "import" && e.Site.Spec.RegistryPlainHTTP {
+			capability(step, "registry-http")
+		}
+		if jobOperation(op.Type) {
+			worker(step)
+		}
+		if op.Type != "helm" {
+			continue
+		}
+		if e.Site.Spec.AdmissionDryRun {
+			capability(step, "admission-dry-run")
+		}
+		for _, object := range objects {
+			kind, _ := object["kind"].(string)
+			if kind != "Deployment" && kind != "StatefulSet" {
+				continue
+			}
+			metadata, _ := object["metadata"].(map[string]any)
+			name, _ := metadata["name"].(string)
+			workload, _ := object["spec"].(map[string]any)
+			template, _ := workload["template"].(map[string]any)
+			pod, _ := template["spec"].(map[string]any)
+			account, _ := pod["serviceAccountName"].(string)
+			if account == "" {
+				account, _ = pod["serviceAccount"].(string)
+			}
+			if account == "" {
+				account = "default"
+			}
+			token := "unspecified; account and admission defaults unverified"
+			if mount, ok := pod["automountServiceAccountToken"].(bool); ok {
+				token = fmt.Sprint(mount)
+			}
+			findings = append(findings, spec.Finding{Code: "SERVICE_ACCOUNT_REQUIRED", Severity: "info", Message: kind + "/" + name + " uses ServiceAccount " + e.Site.Spec.Namespace + "/" + account + "; Pod automountServiceAccountToken=" + token + "; service-account API grants are unverified", Source: step})
+		}
+	}
+	for _, check := range p.Checks {
+		step := "check/" + check.ID
+		if err := disclose(step, spec.Plan{Checks: []spec.Check{check}}); err != nil {
+			return nil, err
+		}
+		capability(step, "job")
+		worker(step)
+	}
+	return findings, nil
 }
 
 func permissionLabel(a authorizationv1.ResourceAttributes) string {
@@ -106,6 +195,18 @@ func (e *Engine) permissionRequirements(p spec.Plan, objects, previous []map[str
 			}
 			required[permissionLabel(a)] = a
 		}
+	}
+	addSecrets := func(refs []string) error {
+		for _, id := range refs {
+			ref, ok := e.Site.Spec.SecretRefs[id]
+			if ok && ref.Name != "" {
+				if ref.Namespace != "" && ref.Namespace != namespace {
+					return spec.Err(16, "secret reference escapes target namespace")
+				}
+				add("", "secrets", ref.Name, "get")
+			}
+		}
+		return nil
 	}
 	// These reads are the fixed target/checkpoint observer, not a broad grant.
 	for _, kind := range []string{"Deployment", "StatefulSet", "ConfigMap", "Service", "PersistentVolumeClaim", "Secret"} {
@@ -158,14 +259,13 @@ func (e *Engine) permissionRequirements(p spec.Plan, objects, previous []map[str
 		default:
 			return nil, spec.Err(10, "authorization requirements are not qualified for operation %s", op.Type)
 		}
-		for _, id := range op.SecretRefs {
-			ref, ok := e.Site.Spec.SecretRefs[id]
-			if ok && ref.Name != "" {
-				if ref.Namespace != "" && ref.Namespace != namespace {
-					return nil, spec.Err(16, "operation secret escapes target namespace")
-				}
-				add("", "secrets", ref.Name, "get")
-			}
+		if err := addSecrets(op.SecretRefs); err != nil {
+			return nil, err
+		}
+	}
+	for _, check := range p.Checks {
+		if err := addSecrets(check.SecretRefs); err != nil {
+			return nil, err
 		}
 	}
 	if jobs {

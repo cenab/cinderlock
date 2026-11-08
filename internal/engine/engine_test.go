@@ -376,7 +376,7 @@ func TestPlanBlocksUnreadableRequiredSecrets(t *testing.T) {
 	}
 	found := false
 	for _, finding := range plan.Findings {
-		if finding.Code == "SECRET_UNAVAILABLE" {
+		if finding.Code == "SECRET_ABSENT" {
 			found = true
 		}
 	}

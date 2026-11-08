@@ -2,8 +2,11 @@
 
 Cinderlock checks the selected Kubernetes identity before execution. A plan's
 permission findings identify the API group, resource, verb, namespace, and known
-object name. They help an operator correct a missing grant without giving the
-tool cluster administrator access.
+object name. `PERMISSION_REQUIRED` findings use `source: target` for the common
+observer and coordination scope, and `operation/<id>` or `check/<id>` for each
+step's additional requests. The same step identifies required Site and
+TrustPolicy actions. Authorization results query each distinct caller request
+once; they remain observations at query time.
 
 ## Authorization boundary
 
@@ -19,10 +22,13 @@ result records permission at the time of the query. Execution must still handle
 later denial and reconcile any effect whose outcome becomes uncertain.
 
 The identity is the one in the explicit Site kubeconfig, shared by the Kubernetes
-client and the pinned Helm executable. This is not a check of an application's
-service account. Cinderlock operation Jobs have automatic API token mounting
-disabled. Applications that require Kubernetes API access need their own
-deployment profile and functional checks.
+client and the pinned Helm executable. Service-account findings separately
+identify the accounts declared by rendered workloads and the default account
+used by Cinderlock workers. Worker Jobs disable automatic API token mounting.
+For application Pods, the finding reports an explicit token-mount setting or
+marks account and admission defaults unverified. None of these findings checks
+workload service-account grants. Applications that require Kubernetes API access
+need their own deployment profile and functional checks.
 
 ## Scope
 
@@ -44,6 +50,28 @@ Malformed inventories, unknown API versions, cluster resource kinds, and
 cross-namespace object references block permission planning. The normal
 namespace identity lookup and a GPU profile's named node lookup are explicit
 read-only exceptions to namespaced application requests.
+
+## Target facts
+
+`target inspect` keeps partial observations when an API read fails. It records
+`known` facts, conclusive `absent` results, authorization `denied` results,
+`unavailable` reads, `stale` expired reads or pending Helm state, and `unknown`
+reads that were not completed. Raw API and Helm diagnostics are withheld from
+these findings.
+
+A successful empty resource list records zero. An absent API endpoint cannot
+establish an empty inventory and remains blocking. Namespace and API identity,
+Helm state, and the supported resource inventory must be complete before any
+plan kind can execute. Execution and checkpoint boundaries, including the final
+readiness check, repeat this guard. Selected Secret references must also be
+known; their failures preserve the same categories.
+
+Saved snapshots retain their observation time; displaying one does not refresh
+it or prove current access. The bounded inventory in
+[kubernetes.go](../internal/engine/kubernetes.go) and Secret inspection does not
+cover every Kubernetes kind or dependency. Server-version observations do not
+establish compatibility, and advertised GPU capacity does not replace qualified
+hardware evidence.
 
 ## Limits
 
