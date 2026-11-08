@@ -175,7 +175,13 @@ func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any
 		if err := disclose(step, spec.Plan{Header: p.Header, Checks: []spec.Check{check}}); err != nil {
 			return nil, err
 		}
-		capability(step, "job")
+		actions := spec.EndpointActions([]spec.Check{check})
+		if len(actions) == 0 {
+			actions = []string{"job"}
+		}
+		for _, action := range actions {
+			capability(step, action)
+		}
 		worker(step)
 	}
 	return findings, nil

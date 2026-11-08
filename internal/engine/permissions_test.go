@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -282,5 +283,34 @@ func TestPermissionPlanDisclosesStepRequirementsAndIdentities(t *testing.T) {
 			t.Fatalf("same caller permission queried repeatedly: %+v", request)
 		}
 		seen[request] = true
+	}
+}
+
+func TestPermissionPlanDisclosesCheckCapabilities(t *testing.T) {
+	e, _ := permissionServer(t, func(authorizationv1.ResourceAttributes) authorizationv1.SubjectAccessReviewStatus {
+		return authorizationv1.SubjectAccessReviewStatus{Allowed: true}
+	})
+	p := spec.Plan{Checks: []spec.Check{
+		{ID: "https-route", Type: "endpoint", Domain: "readiness", Required: true, URL: "https://registry.internal/v2/", ExpectedStatus: 200},
+		{ID: "http-route", Type: "endpoint", Domain: "readiness", Required: true, URL: "http://registry.internal/v2/", ExpectedStatus: 200},
+		{ID: "acceptance", Type: "job", Image: "internal/check", Command: []string{"/bin/true"}, TimeoutSeconds: 30, Script: fixtureScript("exit zero")},
+	}}
+	actions := map[string][]string{}
+	for _, finding := range e.PermissionFindings(context.Background(), p, nil) {
+		if finding.Code == "CAPABILITY_REQUIRED" {
+			actions[finding.Source] = append(actions[finding.Source], strings.TrimPrefix(finding.Message, "requires Site and TrustPolicy action "))
+		}
+	}
+	for _, want := range []struct {
+		source  string
+		actions []string
+	}{
+		{"check/https-route", []string{"job", "endpoint-probe"}},
+		{"check/http-route", []string{"job", "endpoint-probe", "endpoint-http"}},
+		{"check/acceptance", []string{"job"}},
+	} {
+		if got := actions[want.source]; !slices.Equal(got, want.actions) {
+			t.Errorf("%s capabilities = %v, want %v", want.source, got, want.actions)
+		}
 	}
 }
