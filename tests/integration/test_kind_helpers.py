@@ -145,7 +145,7 @@ class RegistryPrerequisiteTest(unittest.TestCase):
                          args=["--url", check["url"], "--method", "GET", "--expected-status", "200", "--timeout-seconds", "30", "--allow-http"])
         payload = dict(apiVersion=KIND.API, kind="CommandResult", command="cinderlock helper endpoint-probe",
                        result=dict(status=200, response="observed", authorization="not_supplied"))
-        for case in ["original", "replaced-job", "failed-exit", "wrong-command", "missing-binding"]:
+        for case in ["original", "oversized-full-output", "replaced-job", "failed-exit", "wrong-command", "missing-binding"]:
             with self.subTest(case=case):
                 lab = object.__new__(KIND.Lab)
                 lab.namespace = "test"
@@ -169,8 +169,23 @@ class RegistryPrerequisiteTest(unittest.TestCase):
                     captured.append(argv)
                     return payload, "sha256:" + "d" * 64
 
-                lab.json_observation = observe
-                if case == "original":
+                if case == "oversized-full-output":
+                    lab.env = {}
+                    tail = json.dumps(payload).encode()
+                    full = b"UNEXPECTED-LEADING-OUTPUT" + b" " * (4096 - len(tail)) + tail
+
+                    def process(argv, **kwargs):
+                        captured.append(argv)
+                        truncated = any(arg.startswith("--limit-bytes") for arg in argv)
+                        return SimpleNamespace(returncode=0, stdout=full[-4096:] if truncated else full, stderr=b"")
+
+                    with patch.object(KIND.subprocess, "run", side_effect=process):
+                        with self.assertRaises(RuntimeError):
+                            lab.endpoint_observation(plan, result)
+                    self.assertEqual(len(captured), 1)
+                    self.assertFalse(any(arg.startswith("--limit-bytes") for arg in captured[0]))
+                elif case == "original":
+                    lab.json_observation = observe
                     proof = lab.endpoint_observation(plan, result)
                     self.assertEqual(proof["jobUID"], worker["uid"])
                     self.assertEqual(proof["podUID"], pod["metadata"]["uid"])
@@ -178,7 +193,9 @@ class RegistryPrerequisiteTest(unittest.TestCase):
                     self.assertEqual(proof["observation"], payload["result"])
                     self.assertEqual(len(captured), 1)
                     self.assertEqual(captured[0][:5], ["kubectl", "--kubeconfig", "lab-only", "--context", "kind-cinderlock-test"])
+                    self.assertFalse(any(arg.startswith("--limit-bytes") for arg in captured[0]))
                 else:
+                    lab.json_observation = observe
                     with self.assertRaises(AssertionError):
                         lab.endpoint_observation(plan, result)
                     self.assertEqual(captured, [])

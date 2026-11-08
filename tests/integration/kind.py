@@ -504,7 +504,7 @@ class Lab:
 
         name, uid = original()
         output, digest = self.json_observation(["kubectl", "--kubeconfig", self.args.kubeconfig, "--context", self.args.context,
-            "-n", self.namespace, "logs", "pod/" + name, "-c", "operation", "--limit-bytes=4096"], 4096)
+            "-n", self.namespace, "logs", "pod/" + name, "-c", "operation"], 4096)
         assert original() == (name, uid), "registry Pod identity changed during capture"
         assert output == dict(apiVersion=API, kind="CommandResult", command="cinderlock helper endpoint-probe",
             result=dict(status=200, response="observed", authorization="not_supplied")), "registry helper did not emit its bounded status observation"
