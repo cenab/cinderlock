@@ -490,8 +490,13 @@ func gitOpsProfileManagedFields(desired, live *unstructured.Unstructured) bool {
 		}
 		seen[identity] = true
 		if sub == "status" {
-			if !gitOpsProfileKeys(raw, "f:status") {
-				return false
+			extra := fields.RecursiveDifference(fieldpath.NewSet(fieldpath.MakePathOrDie("status"))).Leaves()
+			if !extra.Empty() {
+				// Deployment status updates also retain the controller's revision annotation.
+				revision := fieldpath.NewSet(fieldpath.MakePathOrDie("metadata", "annotations", "deployment.kubernetes.io/revision"))
+				if live.GetKind() != "Deployment" || manager != "kube-controller-manager" || entry["operation"] != "Update" || !extra.Difference(revision).Empty() {
+					return false
+				}
 			}
 			continue
 		}

@@ -298,6 +298,11 @@ child ownership. The existing dependency becomes direct; its version is unchange
 An omitted default such as one replica still changes application behavior, so
 foreign spec/data/immutability claims block even outside the supplied field set.
 Ordinary defaults and controller status/revision bookkeeping remain supported.
+A Deployment controller can record its revision annotation in the same managed
+entry as status. Only that built-in manager's Update claim over the exact
+revision path is admitted; spec/data/tracking and unrelated metadata claims
+remain blocked. The live API representation requires this narrow exception,
+not a general grant of metadata ownership to status writers.
 When Argo stores child health in its separate application tree, the observer
 retains absent inline child health and combines aggregate application health
 with the actual Deployment rollout. It does not infer a tree read or synthesize

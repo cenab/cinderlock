@@ -158,6 +158,10 @@ claims remain supported. Unknown kinds, opaque lifecycle hooks, force
 operations, and ambiguous facts stay blocked. This isn't a general proof that
 no drift or other writer exists.
 
+Deployment-controller status updates may also retain its revision annotation.
+The profile admits that exact controller/path bookkeeping while continuing to
+reject status claims over spec, data, tracking, or other metadata fields.
+
 For Argo's explicit `appTree` health format, the observer requires aggregate
 Application health and directly checks the live Deployment rollout. It keeps
 missing inline resource health absent; it doesn't fetch or claim to read the
