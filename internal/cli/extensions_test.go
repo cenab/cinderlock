@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func TestAuthorizationCoversOperationTypes(t *testing.T) {
 	policyPath := filepath.Join(h.dir, "active-policy.json")
 	h.ok("trust", "propose-update", f.policyPath, "--public", pub, "--key-id", "customer", "--role", "approval", "--application", "cli-fixture", "--out", policyPath)
 	policy := decode[spec.TrustPolicy](t, read(t, policyPath))
-	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Kubeconfig: "test-only", Context: "test-only", Namespace: "application", ReleaseName: "application", TrustPolicy: policyPath, Profile: "test"}}
+	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Kubeconfig: "test-only", Context: "test-only", Namespace: "application", ReleaseName: "application", TrustPolicy: policyPath, Profile: "test", AllowedActions: []string{"helm", "job"}}}
 	site.Metadata.Name = "test"
 	sitePath := filepath.Join(h.dir, "site.json")
 	if err := spec.Write(sitePath, site); err != nil {
@@ -63,6 +64,17 @@ func TestAuthorizationCoversOperationTypes(t *testing.T) {
 	a := decode[spec.Authorization](t, read(t, authPath))
 	if len(a.Actions) != 1 || a.Actions[0] != "helm" {
 		t.Fatalf("authorization must cover operation types: %v", a.Actions)
+	}
+	plan.Checks = []spec.Check{{ID: "workflow", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/check"}, TimeoutSeconds: 30, Script: checkScript("workflow")}}
+	planPath = filepath.Join(h.dir, "checked-plan.json")
+	if err := spec.Write(planPath, plan); err != nil {
+		t.Fatal(err)
+	}
+	authPath = filepath.Join(h.dir, "checked-authorization.json")
+	h.ok("run", "authorize", planPath, "--key", key, "--key-id", "customer", "--out", authPath)
+	a = decode[spec.Authorization](t, read(t, authPath))
+	if !slices.Contains(a.Actions, "job") {
+		t.Fatalf("authorization omits its declared authored Job check: %v", a.Actions)
 	}
 }
 

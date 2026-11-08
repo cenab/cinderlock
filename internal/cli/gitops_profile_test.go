@@ -107,7 +107,7 @@ data: {setting: PRIVATE-CONFIGURATION-SENTINEL}
 	if revision == f.release.Spec.Deployment.GitOps.Revision {
 		t.Fatal("accepted source did not advance beyond the signed base")
 	}
-	contract := engine.GitOpsProfileContract{Header: spec.NewHeader("GitOpsProfileContract"), Profile: "argocd-directory-v1", Namespace: "argocd", Name: "application", UID: "controller-uid", Repository: repository, RepositoryURL: "https://git.internal/application.git", AcceptedRevision: revision, ManifestDigest: spec.Hash(manifest), NotBefore: time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339Nano), MaxAgeSeconds: 900}
+	contract := spec.GitOpsProfileContract{Header: spec.NewHeader("GitOpsProfileContract"), Profile: "argocd-directory-v1", Namespace: "argocd", Name: "application", UID: "controller-uid", Repository: repository, RepositoryURL: "https://git.internal/application.git", AcceptedRevision: revision, ManifestDigest: spec.Hash(manifest), NotBefore: time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339Nano), MaxAgeSeconds: 900}
 	objects, err = engine.PermissionObjects(manifest)
 	if err != nil {
 		t.Fatal(err)

@@ -181,7 +181,7 @@ func stagedImageFixture(t *testing.T) (*Engine, spec.Plan, *bundle.Verified, spe
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &spec.Authorization{Header: spec.NewHeader("Authorization"), PlanDigest: digest, PlanKind: p.Kind, TargetID: p.Snapshot.TargetID, PolicyDigest: p.PolicyDigest, PolicyEpoch: p.PolicyEpoch, Actions: []string{"import"}, ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), Nonce: randomID()}
+	a := &spec.Authorization{Header: spec.NewHeader("Authorization"), PlanDigest: digest, PlanKind: p.Kind, TargetID: p.Snapshot.TargetID, PolicyDigest: p.PolicyDigest, PolicyEpoch: p.PolicyEpoch, Actions: []string{"import", "gitops-stage"}, ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), Nonce: randomID()}
 	if err = spec.SignAuthorization(a, private, "customer"); err != nil {
 		t.Fatal(err)
 	}

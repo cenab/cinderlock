@@ -113,7 +113,7 @@ func TestEndpointAuthorizationCommandDerivesCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, policyPath, encoded)
-	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Kubeconfig: "test-only", Context: "test-only", Namespace: "application", ReleaseName: "application", TrustPolicy: policyPath, Profile: "test", AllowedActions: []string{"job", "endpoint-probe", "endpoint-http"}}}
+	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Kubeconfig: "test-only", Context: "test-only", Namespace: "application", ReleaseName: "application", TrustPolicy: policyPath, Profile: "test", AllowedActions: []string{"helm", "job", "endpoint-probe", "endpoint-http"}}}
 	site.Metadata.Name = "test"
 	sitePath := filepath.Join(h.dir, "endpoint-site.json")
 	if err := spec.Write(sitePath, site); err != nil {
@@ -131,7 +131,7 @@ func TestEndpointAuthorizationCommandDerivesCapabilities(t *testing.T) {
 	if !slices.Equal(a.Actions, []string{"helm", "job", "endpoint-probe", "endpoint-http"}) {
 		t.Fatalf("endpoint approval omitted exact prerequisite capabilities: %v", a.Actions)
 	}
-	site.Spec.AllowedActions = []string{"job"}
+	site.Spec.AllowedActions = []string{"helm", "job"}
 	encoded, err = spec.Canonical(site)
 	if err != nil {
 		t.Fatal(err)

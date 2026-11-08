@@ -422,21 +422,10 @@ func addAuthorize(g *cobra.Command, o *options) {
 		if _, e = rand.Read(nonce); e != nil {
 			return e
 		}
-		actions := []string{}
-		for _, op := range p.Operations {
-			if !has(policy.Spec.AllowedActions, op.Type) {
-				return spec.Err(16, "operation %s is outside policy", op.ID)
-			}
-			if !has(actions, op.Type) {
-				actions = append(actions, op.Type)
-			}
-		}
-		for _, capability := range spec.EndpointActions(p.Checks) {
+		actions := spec.PlanActions(p)
+		for _, capability := range actions {
 			if !has(site.Spec.AllowedActions, capability) || !has(policy.Spec.AllowedActions, capability) {
-				return spec.Err(16, "endpoint prerequisite capability %s is outside site or policy", capability)
-			}
-			if !has(actions, capability) {
-				actions = append(actions, capability)
+				return spec.Err(16, "plan capability %s is outside site or policy", capability)
 			}
 		}
 		a := spec.Authorization{Header: spec.NewHeader("Authorization"), PlanDigest: d, PlanKind: p.Kind, TargetID: p.Snapshot.TargetID, PolicyDigest: pd, PolicyEpoch: policy.Spec.Epoch, Actions: actions, ExpiresAt: time.Now().UTC().Add(validity).Format(time.RFC3339), Nonce: hex.EncodeToString(nonce)}

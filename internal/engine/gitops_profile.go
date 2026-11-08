@@ -3,13 +3,10 @@ package engine
 import (
 	"bytes"
 	"context"
-	"net/url"
 	"path"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"slices"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -21,28 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
 )
-
-// GitOpsProfileContract selects one fixed, read-only controller adapter.
-type GitOpsProfileContract struct {
-	spec.Header
-	Profile          string                  `json:"profile"`
-	Namespace        string                  `json:"namespace"`
-	Name             string                  `json:"name"`
-	UID              string                  `json:"uid"`
-	Repository       string                  `json:"repository"`
-	RepositoryURL    string                  `json:"repositoryURL"`
-	AcceptedRevision string                  `json:"acceptedRevision"`
-	ManifestDigest   string                  `json:"manifestDigest"`
-	NotBefore        string                  `json:"notBefore"`
-	MaxAgeSeconds    int64                   `json:"maxAgeSeconds"`
-	InstallationID   string                  `json:"installationID,omitempty"`
-	Reversion        *GitOpsProfileReversion `json:"reversion,omitempty"`
-}
-
-type GitOpsProfileReversion struct {
-	PreviousRevision string `json:"previousRevision"`
-	RestoredRevision string `json:"restoredRevision"`
-}
 
 type GitOpsProfileResourceObservation struct {
 	APIVersion         string `json:"apiVersion"`
@@ -101,39 +76,14 @@ type GitOpsProfileObservation struct {
 	Limit                 string                             `json:"limit"`
 }
 
-var gitOpsProfileToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$`)
-
-func (c GitOpsProfileContract) validate() error {
-	if strings.ContainsAny(c.Repository, "\x00\r\n") || strings.Contains(c.Repository, "://") {
-		return spec.Err(2, "GitOps profile requires a local repository directory")
-	}
-	for _, part := range strings.Split(c.Repository, "/") {
-		if part == ".." {
-			return spec.Err(2, "GitOps profile repository directory cannot contain a path escape")
-		}
-	}
-	u, err := url.Parse(c.RepositoryURL)
-	if spec.ValidateHeader(c.Header, "GitOpsProfileContract") != nil || c.Profile != "argocd-directory-v1" || len(validation.IsDNS1123Label(c.Namespace)) != 0 || len(validation.IsDNS1123Subdomain(c.Name)) != 0 || !gitOpsProfileToken.MatchString(c.UID) || c.Repository == "" || err != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(c.RepositoryURL, "\\#\r\n\t") || !gitOpsCommitID(c.AcceptedRevision) || !spec.ValidDigest(c.ManifestDigest) || c.MaxAgeSeconds <= 0 || c.MaxAgeSeconds > 86400 || c.InstallationID != "" && !gitOpsProfileToken.MatchString(c.InstallationID) {
-		return spec.Err(2, "invalid or unsupported GitOps profile contract")
-	}
-	before, err := time.Parse(time.RFC3339Nano, c.NotBefore)
-	if err != nil || before.IsZero() || before.After(time.Now()) {
-		return spec.Err(2, "GitOps profile requires a valid nonfuture notBefore timestamp")
-	}
-	if c.Reversion != nil && (!gitOpsCommitID(c.Reversion.PreviousRevision) || !gitOpsCommitID(c.Reversion.RestoredRevision)) {
-		return spec.Err(2, "GitOps profile reversion requires full lower-case commit IDs")
-	}
-	return nil
-}
-
 func (o *GitOpsProfileObservation) block(code, message string) {
 	o.Ready = false
 	o.Findings = append(o.Findings, spec.Finding{Code: "GITOPS_PROFILE_" + code, Severity: "blocker", Message: message})
 }
 
 // ObserveGitOpsProfile establishes bounded point-in-time evidence, never execution authority.
-func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, policy spec.TrustPolicy, sitePath string, contract GitOpsProfileContract, reviewedManifest []byte) (out GitOpsProfileObservation, err error) {
-	if err = contract.validate(); err != nil {
+func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, policy spec.TrustPolicy, sitePath string, contract spec.GitOpsProfileContract, reviewedManifest []byte) (out GitOpsProfileObservation, err error) {
+	if err = spec.ValidateGitOpsProfileContract(contract, time.Now()); err != nil {
 		return out, err
 	}
 	if e == nil || v == nil || !spec.ValidDigest(v.Digest) || spec.ValidateRelease(v.Index.Lock.Release) != nil || spec.ValidatePolicy(policy) != nil || spec.ValidateSite(e.Site) != nil || len(validation.IsDNS1123Label(e.Site.Spec.Namespace)) != 0 || sitePath == "" || e.StateDir == "" {
@@ -141,7 +91,7 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 	}
 	r := v.Index.Lock.Release
 	declared := r.Spec.Deployment.GitOps
-	if r.Spec.Deployment.Type != "gitops" || declared == nil || declared.Owner != "argocd" || !gitOpsTargetPath(declared.Path) || !gitOpsCommitID(declared.Revision) || e.Site.Spec.Profile != r.Spec.Profile {
+	if r.Spec.Deployment.Type != "gitops" || declared == nil || declared.Owner != "argocd" || !gitOpsTargetPath(declared.Path) || !spec.ValidGitOpsCommit(declared.Revision) || e.Site.Spec.Profile != r.Spec.Profile {
 		return out, spec.Err(10, "GitOps profile requires signed Argo CD ownership, a confined YAML path, and matching Site profile")
 	}
 	if !slices.Contains(e.Site.Spec.AllowedActions, "gitops-observe") || !slices.Contains(policy.Spec.AllowedActions, "gitops-observe") {
@@ -305,10 +255,10 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 			continue
 		}
 		fact.Active = gitOpsProfileActive(live) && live.GetAPIVersion() == object.GetAPIVersion() && live.GetKind() == object.GetKind() && live.GetNamespace() == site.Spec.Namespace && live.GetName() == object.GetName()
-		if gitOpsProfileToken.MatchString(string(live.GetUID())) {
+		if spec.ValidGitOpsIdentity(string(live.GetUID())) {
 			fact.UID = string(live.GetUID())
 		}
-		if gitOpsProfileToken.MatchString(live.GetResourceVersion()) {
+		if spec.ValidGitOpsIdentity(live.GetResourceVersion()) {
 			fact.ResourceVersion = live.GetResourceVersion()
 		}
 		if live.GetGeneration() > 0 {
@@ -391,7 +341,7 @@ func (e *Engine) gitOpsProfileTarget(ctx context.Context, site spec.Site) (strin
 		return "", "", false
 	}
 	ns, err := e.Kube.Client.CoreV1().Namespaces().Get(ctx, site.Spec.Namespace, metav1.GetOptions{})
-	if err != nil || ns == nil || ns.Name != site.Spec.Namespace || !gitOpsProfileToken.MatchString(string(ns.UID)) || ns.DeletionTimestamp != nil {
+	if err != nil || ns == nil || ns.Name != site.Spec.Namespace || !spec.ValidGitOpsIdentity(string(ns.UID)) || ns.DeletionTimestamp != nil {
 		return "", "", false
 	}
 	id := TargetIdentity(e.Kube.Config.Host, string(ns.UID))
@@ -402,7 +352,7 @@ func (e *Engine) gitOpsProfileTarget(ctx context.Context, site spec.Site) (strin
 }
 
 func gitOpsProfileActive(u *unstructured.Unstructured) bool {
-	if !gitOpsProfileToken.MatchString(string(u.GetUID())) || !gitOpsProfileToken.MatchString(u.GetResourceVersion()) {
+	if !spec.ValidGitOpsIdentity(string(u.GetUID())) || !spec.ValidGitOpsIdentity(u.GetResourceVersion()) {
 		return false
 	}
 	metadata, ok := u.Object["metadata"].(map[string]any)

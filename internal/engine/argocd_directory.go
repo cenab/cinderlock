@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/cenab/cinderlock/internal/spec"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -28,7 +29,7 @@ func gitOpsProfileOptions(value any) bool {
 	return true
 }
 
-func gitOpsProfileSource(value any, c GitOpsProfileContract, signedPath string) bool {
+func gitOpsProfileSource(value any, c spec.GitOpsProfileContract, signedPath string) bool {
 	source, ok := value.(map[string]any)
 	if !ok || !gitOpsProfileKeys(source, "repoURL", "targetRevision", "path", "directory") || source["repoURL"] != c.RepositoryURL || source["targetRevision"] != c.AcceptedRevision || source["path"] != path.Dir(signedPath) {
 		return false
@@ -51,7 +52,7 @@ func gitOpsProfileDestination(value any, namespace string) bool {
 	return ok && gitOpsProfileKeys(destination, "server", "namespace") && destination["server"] == "https://kubernetes.default.svc" && destination["namespace"] == namespace
 }
 
-func gitOpsProfileApplication(u *unstructured.Unstructured, c GitOpsProfileContract, namespace, signedPath string, out *GitOpsProfileObservation) bool {
+func gitOpsProfileApplication(u *unstructured.Unstructured, c spec.GitOpsProfileContract, namespace, signedPath string, out *GitOpsProfileObservation) bool {
 	if !gitOpsProfileActive(u) || u.GetAPIVersion() != "argoproj.io/v1alpha1" || u.GetKind() != "Application" || u.GetNamespace() != c.Namespace || u.GetName() != c.Name || string(u.GetUID()) != c.UID || u.GetGeneration() <= 0 || u.Object["operation"] != nil || !gitOpsProfileMetadata(u, c, false) {
 		return false
 	}
@@ -162,7 +163,7 @@ func gitOpsProfileApplication(u *unstructured.Unstructured, c GitOpsProfileContr
 	return true
 }
 
-func gitOpsProfileTimes(u *unstructured.Unstructured, c GitOpsProfileContract, out *GitOpsProfileObservation) bool {
+func gitOpsProfileTimes(u *unstructured.Unstructured, c spec.GitOpsProfileContract, out *GitOpsProfileObservation) bool {
 	now := time.Now()
 	before, _ := time.Parse(time.RFC3339Nano, c.NotBefore)
 	paths := [][]string{{"status", "operationState", "startedAt"}, {"status", "operationState", "finishedAt"}, {"status", "reconciledAt"}}

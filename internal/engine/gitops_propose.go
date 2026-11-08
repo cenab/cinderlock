@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -47,14 +46,6 @@ type GitOpsProposal struct {
 	Source                GitOpsSourceChange `json:"source"`
 	ApplicationAcceptance string             `json:"applicationAcceptance"`
 	Notice                string             `json:"notice"`
-}
-
-func gitOpsCommitID(value string) bool {
-	if len(value) != 40 && len(value) != 64 || strings.ToLower(value) != value {
-		return false
-	}
-	_, err := hex.DecodeString(value)
-	return err == nil
 }
 
 func gitOpsTargetPath(value string) bool {
@@ -301,7 +292,7 @@ func (repo gitOpsRepository) snapshot(ctx context.Context, head, target string) 
 // ProposeGitOpsSource never changes the index, files, refs, or remote repository.
 func ProposeGitOpsSource(ctx context.Context, repository, head, target string, desired []byte) (GitOpsSourceChange, error) {
 	var out GitOpsSourceChange
-	if !gitOpsCommitID(head) || !gitOpsTargetPath(target) || len(desired) == 0 || len(desired) > maxGitOpsFileBytes || !utf8.Valid(desired) || bytes.IndexByte(desired, 0) >= 0 {
+	if !spec.ValidGitOpsCommit(head) || !gitOpsTargetPath(target) || len(desired) == 0 || len(desired) > maxGitOpsFileBytes || !utf8.Valid(desired) || bytes.IndexByte(desired, 0) >= 0 {
 		return out, spec.Err(2, "GitOps proposal requires an exact commit, confined YAML path, and bounded text manifest")
 	}
 	root, directory, err := openGitOpsDirectory(repository)
@@ -467,7 +458,7 @@ func (e *Engine) ProposeGitOps(ctx context.Context, v *bundle.Verified, policy s
 		return out, err
 	}
 	declared := r.Spec.Deployment.GitOps
-	if r.Spec.Deployment.Type != "gitops" || declared == nil || (declared.Owner != "flux" && declared.Owner != "argocd") || declared.Revision != head || declared.Path != target || !gitOpsCommitID(head) || e.Site.Spec.Profile != r.Spec.Profile {
+	if r.Spec.Deployment.Type != "gitops" || declared == nil || (declared.Owner != "flux" && declared.Owner != "argocd") || declared.Revision != head || declared.Path != target || !spec.ValidGitOpsCommit(head) || e.Site.Spec.Profile != r.Spec.Profile {
 		return out, spec.Err(10, "GitOps proposal differs from its signed owner, exact base revision, path, or Site profile")
 	}
 	if _, err := GitOpsPreparationPath(repository, e.StateDir); err != nil {

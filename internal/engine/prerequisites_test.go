@@ -273,7 +273,7 @@ func TestPrerequisiteWaitRevalidatesExecutionBoundary(t *testing.T) {
 				policy.Spec.Epoch++
 				admitFixturePolicy(t, e, policy)
 				p.PolicyDigest, p.PolicyEpoch = mustDigest(t, policy), policy.Spec.Epoch
-				approval = &spec.Authorization{Header: spec.NewHeader("Authorization"), PlanDigest: mustDigest(t, p), PlanKind: p.Kind, TargetID: p.Snapshot.TargetID, PolicyDigest: p.PolicyDigest, PolicyEpoch: p.PolicyEpoch, Actions: []string{"migrate"}, ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), Nonce: "approval"}
+				approval = &spec.Authorization{Header: spec.NewHeader("Authorization"), PlanDigest: mustDigest(t, p), PlanKind: p.Kind, TargetID: p.Snapshot.TargetID, PolicyDigest: p.PolicyDigest, PolicyEpoch: p.PolicyEpoch, Actions: []string{"migrate", "job"}, ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), Nonce: "approval"}
 				if err := spec.SignAuthorization(approval, private, "customer"); err != nil {
 					t.Fatal(err)
 				}

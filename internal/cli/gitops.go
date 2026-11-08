@@ -101,7 +101,7 @@ func addGitOpsProfileObservation(g *cobra.Command, o *options) {
 	observe := &cobra.Command{Use: "observe-profile BUNDLE", Short: "Read exact source, Argo CD, and live resource evidence under a bounded contract", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
 		ctx, cancel := o.context(c)
 		defer cancel()
-		var contract engine.GitOpsProfileContract
+		var contract spec.GitOpsProfileContract
 		if err := spec.Read(contractPath, &contract); err != nil {
 			return err
 		}

@@ -30,6 +30,13 @@ marks account and admission defaults unverified. None of these findings checks
 workload service-account grants. Applications that require Kubernetes API access
 need their own deployment profile and functional checks.
 
+Customer execution approval binds the exact plan and its complete capability
+set. Signing and execution use the same operation, check, endpoint, and phase
+actions. Declared checks require `job`; fixed endpoint prerequisites retain
+their endpoint actions, and image staging includes `gitops-stage`. Each action
+must be admitted by both Site and TrustPolicy. Reissue saved approvals that
+omit a required action before executing the exact plan.
+
 ## Scope
 
 The requirement model lives in

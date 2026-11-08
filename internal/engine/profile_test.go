@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -143,6 +144,46 @@ func TestExecutionProfileAllowsExplicitRegistryCredentialFile(t *testing.T) {
 		if finding.Severity == "blocker" {
 			t.Fatalf("supported registry file reference rejected: %#v", finding)
 		}
+	}
+}
+
+func TestExecutionAdmissionRequiresCheckAndPhaseCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		kind    string
+		actions []string
+	}{
+		{"Plan", []string{"job"}},
+		{"ArtifactsPlan", []string{"gitops-stage"}},
+		{"GitOpsPreparePlan", []string{"gitops-prepare"}},
+		{"GitOpsChecksPlan", []string{"gitops-check", "gitops-observe"}},
+	} {
+		t.Run(test.kind, func(t *testing.T) {
+			e, _, policy := fixture(t)
+			e.Site.Spec.AllowedActions = append(e.Site.Spec.AllowedActions, test.actions...)
+			policy.Spec.AllowedActions = append(policy.Spec.AllowedActions, test.actions...)
+			p, v := fixturePlan(t, e, policy)
+			p.Kind = test.kind
+			if err := e.checkExecutionProfile(context.Background(), p, v, policy); err != nil {
+				t.Fatalf("admitted capabilities rejected: %v", err)
+			}
+			for _, owner := range []string{"site", "policy"} {
+				for _, action := range test.actions {
+					t.Run(owner+"/"+action, func(t *testing.T) {
+						siteActions := e.Site.Spec.AllowedActions
+						defer func() { e.Site.Spec.AllowedActions = siteActions }()
+						denied := policy
+						if owner == "site" {
+							e.Site.Spec.AllowedActions = slices.DeleteFunc(slices.Clone(siteActions), func(s string) bool { return s == action })
+						} else {
+							denied.Spec.AllowedActions = slices.DeleteFunc(slices.Clone(policy.Spec.AllowedActions), func(s string) bool { return s == action })
+						}
+						if err := e.checkExecutionProfile(context.Background(), p, v, denied); spec.ExitCode(err) != 16 || !strings.Contains(err.Error(), action) {
+							t.Fatalf("missing %s capability %s was admitted: %v", owner, action, err)
+						}
+					})
+				}
+			}
+		})
 	}
 }
 

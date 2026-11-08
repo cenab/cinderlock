@@ -38,14 +38,9 @@ func (e *Engine) authorize(p spec.Plan, policy spec.TrustPolicy, a *spec.Authori
 	if err != nil || !time.Now().Before(expires) {
 		return "", spec.Err(16, "authorization expired or invalid")
 	}
-	for _, o := range p.Operations {
-		if !slices.Contains(a.Actions, o.Type) {
-			return "", spec.Err(16, "authorization does not cover action %s", o.Type)
-		}
-	}
-	for _, capability := range spec.EndpointActions(p.Checks) {
+	for _, capability := range spec.PlanActions(p) {
 		if !slices.Contains(a.Actions, capability) {
-			return "", spec.Err(16, "authorization does not cover endpoint prerequisite capability %s", capability)
+			return "", spec.Err(16, "authorization does not cover action %s", capability)
 		}
 	}
 	body, err := spec.AuthorizationBytes(*a)

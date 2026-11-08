@@ -245,20 +245,14 @@ func (e *Engine) secretFindings(p spec.Plan, snapshot spec.TargetSnapshot, v *bu
 
 func (e *Engine) addExecutionFindings(ctx context.Context, p *spec.Plan, v *bundle.Verified, policy spec.TrustPolicy) {
 	findings := e.ExecutionFindings(ctx, *p, v)
-	for _, o := range p.Operations {
-		if !slices.Contains(e.Site.Spec.AllowedActions, o.Type) || !slices.Contains(policy.Spec.AllowedActions, o.Type) {
-			findings = append(findings, spec.Finding{Code: "CAPABILITY_DENIED", Severity: "blocker", Message: "selected operation is not permitted by both site and policy: " + o.Type})
+	for _, capability := range spec.PlanActions(*p) {
+		if !slices.Contains(e.Site.Spec.AllowedActions, capability) || !slices.Contains(policy.Spec.AllowedActions, capability) {
+			findings = append(findings, spec.Finding{Code: "CAPABILITY_DENIED", Severity: "blocker", Message: "selected plan capability is not permitted by both site and policy: " + capability})
 		}
+	}
+	for _, o := range p.Operations {
 		if o.Type == "import" && e.Site.Spec.RegistryPlainHTTP && (!slices.Contains(e.Site.Spec.AllowedActions, "registry-http") || !slices.Contains(policy.Spec.AllowedActions, "registry-http")) {
 			findings = append(findings, spec.Finding{Code: "REGISTRY_HTTP_DENIED", Severity: "blocker", Message: "plain HTTP registry needs explicit site and policy capability registry-http"})
-		}
-	}
-	if len(p.Checks) > 0 && (!slices.Contains(e.Site.Spec.AllowedActions, "job") || !slices.Contains(policy.Spec.AllowedActions, "job")) {
-		findings = append(findings, spec.Finding{Code: "CHECK_CAPABILITY_DENIED", Severity: "blocker", Message: "selected acceptance checks require site and policy Job capability"})
-	}
-	for _, capability := range spec.EndpointActions(p.Checks) {
-		if !slices.Contains(e.Site.Spec.AllowedActions, capability) || !slices.Contains(policy.Spec.AllowedActions, capability) {
-			findings = append(findings, spec.Finding{Code: "ENDPOINT_CAPABILITY_DENIED", Severity: "blocker", Message: "endpoint prerequisites require Site and policy capability " + capability})
 		}
 	}
 	p.Findings = append(p.Findings, findings...)
@@ -298,7 +292,7 @@ func (e *Engine) checkExecutionProfile(ctx context.Context, p spec.Plan, v *bund
 	for _, finding := range checked.Findings {
 		if finding.Severity == "blocker" {
 			code := 10
-			if finding.Code == "CAPABILITY_DENIED" || finding.Code == "CHECK_CAPABILITY_DENIED" || finding.Code == "REGISTRY_HTTP_DENIED" || finding.Code == "ENDPOINT_CAPABILITY_DENIED" {
+			if finding.Code == "CAPABILITY_DENIED" || finding.Code == "REGISTRY_HTTP_DENIED" {
 				code = 16
 			}
 			return spec.Err(code, "%s: %s", finding.Code, finding.Message)

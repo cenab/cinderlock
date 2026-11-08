@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/structured-merge-diff/v6/fieldpath"
 )
 
-func (e *Engine) gitOpsProfileInventory(manifest []byte, c GitOpsProfileContract) ([]*unstructured.Unstructured, error) {
+func (e *Engine) gitOpsProfileInventory(manifest []byte, c spec.GitOpsProfileContract) ([]*unstructured.Unstructured, error) {
 	objects, err := PermissionObjects(manifest)
 	if err != nil || len(objects) == 0 || len(objects) > 64 {
 		return nil, spec.Err(2, "GitOps profile requires one to 64 unambiguous reviewed resources")
@@ -51,7 +51,7 @@ func (e *Engine) gitOpsProfileInventory(manifest []byte, c GitOpsProfileContract
 	return out, nil
 }
 
-func gitOpsProfileMetadata(u *unstructured.Unstructured, c GitOpsProfileContract, trackingRequired bool) bool {
+func gitOpsProfileMetadata(u *unstructured.Unstructured, c spec.GitOpsProfileContract, trackingRequired bool) bool {
 	for _, field := range []string{"ownerReferences", "finalizers"} {
 		v, found, err := unstructured.NestedSlice(u.Object, "metadata", field)
 		if err != nil || found && len(v) != 0 {
@@ -165,7 +165,7 @@ func gitOpsProfileShape(u *unstructured.Unstructured) bool {
 		// Pod-template markers must not hide a second hook or ownership configuration.
 		if template != nil {
 			p := &unstructured.Unstructured{Object: map[string]any{"metadata": template}}
-			if !gitOpsProfileMetadata(p, GitOpsProfileContract{}, false) {
+			if !gitOpsProfileMetadata(p, spec.GitOpsProfileContract{}, false) {
 				return false
 			}
 		}

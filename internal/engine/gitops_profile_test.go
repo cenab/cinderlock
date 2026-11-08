@@ -33,7 +33,7 @@ type profileFixture struct {
 	v           *bundle.Verified
 	policy      spec.TrustPolicy
 	sitePath    string
-	contract    GitOpsProfileContract
+	contract    spec.GitOpsProfileContract
 	manifest    []byte
 	repo        proposalRepository
 	application *unstructured.Unstructured
@@ -125,7 +125,7 @@ data: {setting: CONFIGMAP-SENSITIVE-SENTINEL}
 	}
 	repo := newProposalRepository(t, manifest, initOptions...)
 	r.Spec.Deployment.GitOps.Revision = repo.head
-	contract := GitOpsProfileContract{Header: spec.NewHeader("GitOpsProfileContract"), Profile: "argocd-directory-v1", Namespace: "argocd", Name: "application", UID: "application-uid", Repository: repo.dir, RepositoryURL: "https://git.example.invalid/team/source.git", AcceptedRevision: repo.head, ManifestDigest: spec.Hash(manifest), NotBefore: time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339Nano), MaxAgeSeconds: 3600}
+	contract := spec.GitOpsProfileContract{Header: spec.NewHeader("GitOpsProfileContract"), Profile: "argocd-directory-v1", Namespace: "argocd", Name: "application", UID: "application-uid", Repository: repo.dir, RepositoryURL: "https://git.example.invalid/team/source.git", AcceptedRevision: repo.head, ManifestDigest: spec.Hash(manifest), NotBefore: time.Now().Add(-10 * time.Minute).UTC().Format(time.RFC3339Nano), MaxAgeSeconds: 3600}
 	objects, err := PermissionObjects(manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -1023,7 +1023,7 @@ func TestObserveGitOpsProfileInvalidInputs(t *testing.T) {
 		{"zero-maxAge", 2, func(f *profileFixture) { f.contract.MaxAgeSeconds = 0 }},
 		{"unbounded-maxAge", 2, func(f *profileFixture) { f.contract.MaxAgeSeconds = 86401 }},
 		{"invalid-reversion", 2, func(f *profileFixture) {
-			f.contract.Reversion = &GitOpsProfileReversion{PreviousRevision: "HEAD", RestoredRevision: f.repo.head}
+			f.contract.Reversion = &spec.GitOpsProfileReversion{PreviousRevision: "HEAD", RestoredRevision: f.repo.head}
 		}},
 		{"flux-release-owner", 10, func(f *profileFixture) { f.v.Index.Lock.Release.Spec.Deployment.GitOps.Owner = "flux" }},
 		{"unsigned-path-escape", 10, func(f *profileFixture) { f.v.Index.Lock.Release.Spec.Deployment.GitOps.Path = "../application.yaml" }},
@@ -1053,7 +1053,7 @@ func TestObserveGitOpsProfileInvalidInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var parsed GitOpsProfileContract
+	var parsed spec.GitOpsProfileContract
 	if err = spec.Decode(body, &parsed); err != nil {
 		t.Fatal(err)
 	}
@@ -1185,7 +1185,7 @@ func TestObserveGitOpsProfileHistoricalFileReversion(t *testing.T) {
 	f.repo.command(nil, "add", "--", "application.yaml")
 	f.repo.command(nil, "commit", "-m", "Fixture restored file")
 	f.accepted(t, strings.TrimSpace(string(f.repo.command(nil, "rev-parse", "HEAD"))))
-	f.contract.Reversion = &GitOpsProfileReversion{PreviousRevision: previous, RestoredRevision: restored}
+	f.contract.Reversion = &spec.GitOpsProfileReversion{PreviousRevision: previous, RestoredRevision: restored}
 	f.seed(t)
 	before := repositoryBytes(t, f.repo.dir)
 	o, err := f.observe()
@@ -1207,7 +1207,7 @@ func TestObserveGitOpsProfileHistoricalFileReversion(t *testing.T) {
 		t.Fatal(err)
 	}
 	input = bytes.Replace(input, []byte(`"previousRevision":`), []byte(`"repository":"/unrelated/repository","previousRevision":`), 1)
-	var parsed GitOpsProfileContract
+	var parsed spec.GitOpsProfileContract
 	if spec.Decode(input, &parsed) == nil {
 		t.Fatal("reversion accepted an independent repository")
 	}

@@ -117,7 +117,7 @@ selected file must match HEAD, index, working bytes, and the reviewed export.
 Both Site and policy must allow `gitops-observe`. Select the existing
 Application's namespace, name, and UID, the credential-free source URL, the
 accepted commit and manifest digest, and an original reconcile/operation time
-window in a private contract. The [contract type](../internal/engine/gitops_profile.go)
+window in a private contract. The [contract type](../internal/spec/gitops.go)
 owns its exact fields and limits.
 
 The signed GitOps revision remains the proposal's expected base commit. Applying

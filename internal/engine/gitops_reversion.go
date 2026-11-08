@@ -33,7 +33,7 @@ func ObserveGitOpsReversion(ctx context.Context, contract *GitOpsSourceReversion
 		return out, nil
 	}
 	c := *contract
-	if !gitOpsCommitID(acceptedRevision) || !gitOpsCommitID(c.PreviousRevision) || !gitOpsCommitID(c.RestoredRevision) || !gitOpsTargetPath(signedPath) || len(reviewedManifest) == 0 || len(reviewedManifest) > maxGitOpsFileBytes || !utf8.Valid(reviewedManifest) || bytes.IndexByte(reviewedManifest, 0) >= 0 {
+	if !spec.ValidGitOpsCommit(acceptedRevision) || !spec.ValidGitOpsCommit(c.PreviousRevision) || !spec.ValidGitOpsCommit(c.RestoredRevision) || !gitOpsTargetPath(signedPath) || len(reviewedManifest) == 0 || len(reviewedManifest) > maxGitOpsFileBytes || !utf8.Valid(reviewedManifest) || bytes.IndexByte(reviewedManifest, 0) >= 0 {
 		return out, spec.Err(2, "GitOps reversion requires exact commits, a confined YAML path, and a bounded text manifest")
 	}
 	// A no-op proposal reuses the confined HEAD/index/working-file validation.
