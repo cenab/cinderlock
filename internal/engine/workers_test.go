@@ -12,6 +12,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,10 +47,10 @@ func completeWorkers(client *fake.Clientset) {
 }
 
 func TestWorkerIdentityRejectsReplacementAndChangedRecipe(t *testing.T) {
-	e, client, _, p, _, intent := workerFixture(t)
+	e, client, policy, p, v, intent := workerFixture(t)
 	completeWorkers(client)
 	operation := p.Operations[0]
-	name, err := e.executeJob(context.Background(), "worker-run", operation.ID, "internal/runner@sha256:"+strings.Repeat("a", 64), operation.Command, nil, nil, "", "", 1)
+	name, err := e.operation(context.Background(), p, "worker-run", operation, v, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,36 +91,79 @@ func TestWorkerIdentityRejectsReplacementAndChangedRecipe(t *testing.T) {
 }
 
 func TestResumeDoesNotTrustReplacementMigrationJob(t *testing.T) {
-	e, client, policy, p, v, intent := workerFixture(t)
-	completeWorkers(client)
-	operation := p.Operations[0]
-	name, err := e.executeJob(context.Background(), "worker-run", operation.ID, "internal/runner@sha256:"+strings.Repeat("a", 64), operation.Command, nil, nil, "", "", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := e.Store.Complete(context.Background(), intent, "uncertain", map[string]string{"lost": "outcome acknowledgement"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.clusterRecord(context.Background(), "worker-run", mustDigest(t, p), "uncertain", intent); err != nil {
-		t.Fatal(err)
-	}
-	job, _ := client.BatchV1().Jobs("test").Get(context.Background(), name, metav1.GetOptions{})
-	job.UID = "replacement"
-	if _, err := client.BatchV1().Jobs("test").Update(context.Background(), job, metav1.UpdateOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	client.ClearActions()
-	if _, err := e.Resume(context.Background(), "worker-run", v, policy, nil, true); spec.ExitCode(err) != 13 {
-		t.Fatalf("resume trusted replacement worker: %v", err)
-	}
-	for _, action := range client.Actions() {
-		if action.GetVerb() == "create" && action.GetResource().Resource == "jobs" {
-			t.Fatal("resume created duplicate migration")
-		}
-	}
-	operations, _ := e.Store.Operations(context.Background(), "worker-run")
-	if operations[0].State != "uncertain" {
-		t.Fatal("replacement finalized original intent")
+	for _, change := range []struct {
+		name string
+		edit func(*batchv1.Job)
+	}{
+		{"original", func(*batchv1.Job) {}},
+		{"replacement", func(j *batchv1.Job) { j.UID = "replacement" }},
+		{"cpu-request", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("200m")
+		}},
+		{"cpu-limit", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = resource.MustParse("200m")
+		}},
+		{"memory-request", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = resource.MustParse("512Mi")
+		}},
+		{"memory-limit", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = resource.MustParse("512Mi")
+		}},
+		{"ephemeral-request", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Containers[0].Resources.Requests[corev1.ResourceEphemeralStorage] = resource.MustParse("128Mi")
+		}},
+		{"ephemeral-limit", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Containers[0].Resources.Limits[corev1.ResourceEphemeralStorage] = resource.MustParse("128Mi")
+		}},
+		{"temporary", func(j *batchv1.Job) {
+			j.Spec.Template.Spec.Volumes[0].EmptyDir.SizeLimit = resource.NewQuantity(8<<20, resource.BinarySI)
+		}},
+		{"deadline", func(j *batchv1.Job) { (*j.Spec.ActiveDeadlineSeconds)++ }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			e, client, policy, p, v, intent := workerFixture(t)
+			completeWorkers(client)
+			ctx := context.Background()
+			name, err := e.operation(ctx, p, "worker-run", p.Operations[0], v, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := e.Store.Complete(ctx, intent, "uncertain", map[string]string{"lost": "outcome acknowledgement"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.clusterRecord(ctx, "worker-run", mustDigest(t, p), "uncertain", intent); err != nil {
+				t.Fatal(err)
+			}
+			job, err := client.BatchV1().Jobs("test").Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertJobBudget(t, job, p.Operations[0].Script.Resources, p.Operations[0].TimeoutSeconds)
+			change.edit(job)
+			if _, err := client.BatchV1().Jobs("test").Update(ctx, job, metav1.UpdateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			client.ClearActions()
+			result, err := e.Resume(ctx, "worker-run", v, policy, nil, true)
+			if change.name == "original" {
+				if err != nil || result.Acceptance != "pass" {
+					t.Fatalf("original worker could not satisfy resume: %+v %v", result, err)
+				}
+				return
+			}
+			if spec.ExitCode(err) != 13 || !strings.Contains(err.Error(), "recipe differs") {
+				t.Fatalf("resume trusted changed worker: %v", err)
+			}
+			for _, action := range client.Actions() {
+				if action.GetVerb() == "create" && action.GetResource().Resource == "jobs" {
+					t.Fatal("resume created duplicate migration")
+				}
+			}
+			operation, err := e.Store.LatestOperation(ctx, "worker-run", p.Operations[0].ID)
+			if err != nil || operation.State != "uncertain" {
+				t.Fatalf("changed worker finalized original intent: %+v %v", operation, err)
+			}
+		})
 	}
 }
 
@@ -133,7 +177,7 @@ func mustDigest(t *testing.T, value any) string {
 }
 
 func TestAmbiguousJobCreationBlocksRecovery(t *testing.T) {
-	e, client, _, p, _, intent := workerFixture(t)
+	e, client, policy, p, v, intent := workerFixture(t)
 	client.PrependReactor("create", "jobs", func(action ktesting.Action) (bool, runtime.Object, error) {
 		job := action.(ktesting.CreateAction).GetObject().(*batchv1.Job).DeepCopy()
 		job.UID = "accepted-with-lost-response"
@@ -143,7 +187,7 @@ func TestAmbiguousJobCreationBlocksRecovery(t *testing.T) {
 		return true, nil, errors.New("connection reset after server acceptance")
 	})
 	operation := p.Operations[0]
-	if _, err := e.executeJob(context.Background(), "worker-run", operation.ID, "internal/runner", operation.Command, nil, nil, "", "", 1); spec.ExitCode(err) != 13 {
+	if _, err := e.operation(context.Background(), p, "worker-run", operation, v, policy); spec.ExitCode(err) != 13 {
 		t.Fatalf("ambiguous create recorded as definite failure: %v", err)
 	}
 	if err := e.Store.Complete(context.Background(), intent, "uncertain", nil); err != nil {

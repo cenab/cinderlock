@@ -75,6 +75,9 @@ func TestNativeSeedStreamsVerifiedFilesAndRetriesOnlyAfterQuiescence(t *testing.
 	jobs := []string{}
 	client.PrependReactor("create", "jobs", func(a ktesting.Action) (bool, runtime.Object, error) {
 		job := a.(ktesting.CreateAction).GetObject().(*batchv1.Job)
+		if job.Spec.Template.Spec.Containers[0].Command[0] == "/usr/local/bin/cinderlock" {
+			assertJobBudget(t, job, nil, op.TimeoutSeconds)
+		}
 		job.UID = types.UID("uid-" + job.Name)
 		jobs = append(jobs, job.Name)
 		if job.Spec.Template.Spec.Containers[0].Stdin {
@@ -261,7 +264,7 @@ func TestResumeRejectsStoredPlanMetadataTamperBeforeClusterAccess(t *testing.T) 
 func TestNativeModelPodRecipeRejectsAdmissionMutations(t *testing.T) {
 	e, client, _, p, _, intent := workerFixture(t)
 	completeWorkers(client)
-	if _, err := e.executeJob(context.Background(), "worker-run", p.Operations[0].ID, "internal/helper", []string{"/fixed"}, nil, nil, "", "", 1); err != nil {
+	if _, err := e.executeJobWithOptions(context.Background(), "worker-run", p.Operations[0].ID, "internal/helper", []string{"/fixed"}, nil, nil, "", "", 1, nil); err != nil {
 		t.Fatal(err)
 	}
 	w, err := e.Store.Worker(context.Background(), "worker-run", intent.StepID, intent.Attempt, intent.StepID)

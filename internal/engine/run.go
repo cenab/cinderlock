@@ -537,6 +537,9 @@ func jobOperation(kind string) bool { return isJob(kind) || kind == "seed" || ki
 
 func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spec.Operation, v *bundle.Verified, policy spec.TrustPolicy) (string, error) {
 	if isJob(o.Type) {
+		if err := spec.ValidateOperation(o); err != nil {
+			return "", err
+		}
 		image, err := e.image(v, o.Image)
 		if err != nil {
 			return "", err
@@ -544,7 +547,7 @@ func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spe
 		if o.ExpectedExitCode != 0 {
 			return "", spec.Err(10, "nonzero expected exits require a qualified result adapter")
 		}
-		return e.executeJob(ctx, runID, o.ID, image, o.Command, o.Args, o.SecretRefs, o.PVC, o.MountPath, o.TimeoutSeconds)
+		return e.executeJobWithOptions(ctx, runID, o.ID, image, o.Command, o.Args, o.SecretRefs, o.PVC, o.MountPath, o.TimeoutSeconds, &jobOptions{Resources: o.Script.Resources})
 	}
 	switch o.Type {
 	case "uninstall":

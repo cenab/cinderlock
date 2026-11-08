@@ -202,10 +202,13 @@ func ValidateOperation(o Operation) error {
 	default:
 		return Err(2, "unsupported operation type %q", o.Type)
 	}
+	if o.NodeName != "" || o.NodeUID != "" || o.GPUCount != 0 {
+		return Err(2, "operation %s authored node metadata and GPU allocation are unsupported", o.ID)
+	}
 	if err := validateScriptContract(o); err != nil {
 		return err
 	}
-	if o.TimeoutSeconds < 0 || o.TimeoutSeconds > 86400 {
+	if o.TimeoutSeconds < 0 || o.TimeoutSeconds > WorkerMaxTimeoutSeconds {
 		return Err(2, "invalid operation timeout")
 	}
 	if o.Destructive && o.Type == "import" {
@@ -217,7 +220,7 @@ func ValidateCheck(c Check) error {
 	if !identifier.MatchString(c.ID) {
 		return Err(2, "invalid check ID")
 	}
-	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > 86400 {
+	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > WorkerMaxTimeoutSeconds {
 		return Err(2, "invalid check timeout")
 	}
 	if c.Type != "endpoint" && (c.CASecretRef != "" || c.AuthorizationSecretRef != "") {

@@ -171,7 +171,9 @@ def workflow_checks(number, fixture):
             inputs=["Locked application image, explicit probe argv, and declared synthetic fixture when present."],
             permissions=["Access the internal synthetic application HTTP endpoint; no Kubernetes API token."],
             sideEffects=["Upsert the fixed synthetic document." if check["id"] == "ingestion" else "Read synthetic application state without changing stored documents."],
-            successChecks=[check["id"]], retry="manual")
+            successChecks=[check["id"]], retry="manual",
+            resources=dict(cpuMillis=250, memoryBytes=256 << 20, ephemeralStorageBytes=64 << 20,
+                temporaryBytes=16 << 20, gpuCount=0))
         if check["domain"] == "workflow":
             check["fixtures"] = ["acceptance-fixture"]
             check["command"] += ["--fixture", "/cinderlock-fixtures/acceptance-fixture/document.json"]
@@ -345,7 +347,9 @@ class Lab:
             dependsOn=[after] if after else [], timeoutSeconds=120,
             script=dict(inputs=["Locked application image, explicit argv, operation identity, and synthetic SQLite instance on /data."],
                 permissions=["Read and write the synthetic database and backup files on document-qa-data; no Kubernetes API token."],
-                sideEffects=[effects[argv[0]]], successChecks=["persistence", "query"], retry="retry-safe"))
+                sideEffects=[effects[argv[0]]], successChecks=["persistence", "query"], retry="retry-safe",
+                resources=dict(cpuMillis=250, memoryBytes=256 << 20, ephemeralStorageBytes=64 << 20,
+                    temporaryBytes=16 << 20, gpuCount=0)))
 
     def release(self, number):
         directory = self.work / f"v{number}"
@@ -394,7 +398,9 @@ class Lab:
                 script=dict(inputs=["Locked application image and mounted synthetic SQLite fixture database."],
                     permissions=["Delete the fixed synthetic document on document-qa-data; no Kubernetes API token."],
                     sideEffects=["Delete cinderlock-fixture-redwood to exercise a real missing-document acceptance failure."],
-                    successChecks=["persistence", "query"], retry="retry-safe"))]
+                    successChecks=["persistence", "query"], retry="retry-safe",
+                    resources=dict(cpuMillis=250, memoryBytes=256 << 20, ephemeralStorageBytes=64 << 20,
+                        temporaryBytes=16 << 20, gpuCount=0)))]
         if number > 1:
             operations += [self.job("writes", "job", ["resume-writes"], operations[-1]["id"])]
         operations += [dict(id="restart", type="restart", service="document-qa",

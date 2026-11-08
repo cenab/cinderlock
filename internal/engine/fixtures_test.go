@@ -85,6 +85,11 @@ func fixtureAcceptanceRun(t *testing.T, kind string) (*Engine, *fake.Clientset, 
 	})
 	client.PrependReactor("create", "jobs", func(a ktesting.Action) (bool, runtime.Object, error) {
 		job := a.(ktesting.CreateAction).GetObject().(*batchv1.Job)
+		if job.Spec.Template.Spec.Containers[0].Command[0] == "/usr/local/bin/cinderlock" {
+			assertJobBudget(t, job, nil, 2)
+		} else {
+			assertJobBudget(t, job, p.Checks[0].Script.Resources, 2)
+		}
 		job.UID = types.UID("uid-" + job.Name)
 		if job.Spec.Template.Spec.Containers[0].Stdin {
 			yes := true
@@ -396,7 +401,7 @@ func TestFixturePreflightRejectsAmbiguousAndSharedSources(t *testing.T) {
 				p.Operations[0].Image = "runner"
 				p.Operations[0].Command = []string{"/vendor/stage"}
 			case "shared-operation":
-				p.Operations = append(p.Operations, spec.Operation{ID: "mutate-fixture", Type: "job", Image: "runner", Command: []string{"/app/write"}, PVC: seed.PVC, MountPath: "/data"})
+				p.Operations = append(p.Operations, spec.Operation{ID: "mutate-fixture", Type: "job", Image: "runner", Command: []string{"/app/write"}, PVC: seed.PVC, MountPath: "/data", Idempotent: true, Script: fixtureScript(p.Checks[0].ID), TimeoutSeconds: 1})
 			case "duplicate-fixture":
 				p.Checks[0].Fixtures = append(p.Checks[0].Fixtures, "documents")
 			case "image-fixture":

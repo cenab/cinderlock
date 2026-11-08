@@ -88,7 +88,8 @@ func TestSeedSuccessRequiresSeparateReadOnlySignedManifestJob(t *testing.T) {
 		job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
 		return false, nil, nil
 	})
-	operation := spec.Operation{ID: "seed-model", Type: "seed", Asset: "model", Image: "runner", Command: []string{"/vendor-copy"}, PVC: "model-v2", MountPath: "/models", ModelSubPath: "artifact", StorageBytes: 1024}
+	operation := spec.Operation{ID: "seed-model", Type: "seed", Asset: "model", Image: "runner", Command: []string{"/vendor-copy"}, PVC: "model-v2", MountPath: "/models", ModelSubPath: "artifact", StorageBytes: 1024, Idempotent: true, Script: fixtureScript("inference"), TimeoutSeconds: 1}
+	operation.Script.Resources = &spec.WorkerResources{CPUMillis: 250, MemoryBytes: 128 << 20, EphemeralStorageBytes: 32 << 20, TemporaryBytes: 4 << 20}
 	planBody, _ := spec.Canonical(plan)
 	siteBody, _ := spec.Canonical(e.Site)
 	if err := e.Store.CreateRun(context.Background(), state.Run{ID: "run-model", Application: "app", TargetID: plan.Snapshot.TargetID, Namespace: "test", PlanDigest: "model-plan", Plan: planBody, Site: siteBody}); err != nil {
@@ -103,6 +104,8 @@ func TestSeedSuccessRequiresSeparateReadOnlySignedManifestJob(t *testing.T) {
 	if len(jobs) != 2 {
 		t.Fatalf("seed completion skipped fixed verifier: %d Jobs", len(jobs))
 	}
+	assertJobBudget(t, jobs[0], operation.Script.Resources, operation.TimeoutSeconds)
+	assertJobBudget(t, jobs[1], nil, operation.TimeoutSeconds)
 	verifier := jobs[1].Spec.Template.Spec
 	container := verifier.Containers[0]
 	if !slices.Equal(container.Command, []string{"/usr/local/bin/cinderlock", "helper", "verify-model"}) || !strings.Contains(container.Image, "/helper@sha256:") {

@@ -14,8 +14,8 @@ func scriptRelease() Release {
 	r := Release{Header: NewHeader("Release"), Spec: ReleaseSpec{
 		Profile: "cpu-test", Deployment: Deployment{Type: "helm", Chart: "chart.tgz"},
 		Assets:         []Asset{{ID: "runner", Type: "image", Source: "registry.invalid/runner:1"}},
-		Operations:     []Operation{{ID: "migrate", Type: "migrate", Image: "runner", Command: []string{"/app/migrate"}, Idempotent: true}},
-		Checks:         []Check{{ID: "workflow", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/verify"}, Required: true}},
+		Operations:     []Operation{{ID: "migrate", Type: "migrate", Image: "runner", Command: []string{"/app/migrate"}, Idempotent: true, TimeoutSeconds: 30}},
+		Checks:         []Check{{ID: "workflow", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/verify"}, Required: true, TimeoutSeconds: 30}},
 		RequiredChecks: []string{"workflow"},
 		Transitions:    []Transition{{ID: "upgrade", FromRelease: "1.0.0", Operations: []string{"migrate"}, Recovery: "manual"}},
 		Recovery:       []Recovery{{ID: "manual", ToRelease: "1.0.0"}},
@@ -57,12 +57,13 @@ func classifiedScriptRelease() Release {
 	r.Spec.Operations[0].Script = &ScriptContract{
 		Inputs: []string{"application database schema"}, Permissions: []string{"vendor-declared schema write access"},
 		SideEffects: []string{"updates the schema revision"}, SuccessChecks: []string{"workflow"}, Retry: "retry-safe",
+		Resources: &WorkerResources{CPUMillis: 100, MemoryBytes: 256 << 20, EphemeralStorageBytes: 64 << 20, TemporaryBytes: 16 << 20},
 	}
 	return r
 }
 
 func checkContract(id string) *ScriptContract {
-	return &ScriptContract{Inputs: []string{"locked image and explicit check argv"}, Permissions: []string{"application test access; no Kubernetes API token"}, SideEffects: []string{"declared application check only"}, SuccessChecks: []string{id}, Retry: "manual"}
+	return &ScriptContract{Inputs: []string{"locked image and explicit check argv"}, Permissions: []string{"application test access; no Kubernetes API token"}, SideEffects: []string{"declared application check only"}, SuccessChecks: []string{id}, Retry: "manual", Resources: &WorkerResources{CPUMillis: 100, MemoryBytes: 256 << 20, EphemeralStorageBytes: 64 << 20, TemporaryBytes: 16 << 20}}
 }
 
 func TestJobCheckScriptContractsAndOptionalEvidence(t *testing.T) {
@@ -81,7 +82,7 @@ func TestJobCheckScriptContractsAndOptionalEvidence(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			r := classifiedScriptRelease()
-			check := Check{ID: "optional", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/optional-check"}, Script: checkContract("optional")}
+			check := Check{ID: "optional", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/optional-check"}, Script: checkContract("optional"), TimeoutSeconds: 30}
 			r.Spec.Checks = append(r.Spec.Checks, check)
 			test.change(&r)
 			assertContractResult(t, ValidateRelease(r), test.want)
@@ -151,6 +152,7 @@ func TestReleaseScriptContract(t *testing.T) {
 			o.Script.Retry, o.Idempotent, o.ReconcileCommand = "reconcilable", false, []string{" "}
 		}, "argv"},
 		{"negative-timeout", func(o *Operation) { o.TimeoutSeconds = -1 }, "timeout"},
+		{"missing-timeout", func(o *Operation) { o.TimeoutSeconds = 0 }, "timeout"},
 		{"long-timeout", func(o *Operation) { o.TimeoutSeconds = 86401 }, "timeout"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -340,7 +342,7 @@ func licensedScriptRelease() Release {
 		Asset{ID: "legacy-runner", Type: "image", Source: "registry.invalid/license:1"},
 	)
 	r.Spec.License = &LicenseRequirement{Mode: "offline", SecretRef: "entitlement", Check: "license", MaxAgeSeconds: 3600, RenewalAsset: "renewal"}
-	check := Check{ID: "license", Type: "job", Domain: "workflow", Required: true, Image: "license-runner", Command: []string{"/app/validate-entitlement"}, SecretRefs: []string{"entitlement"}, Script: checkContract("license")}
+	check := Check{ID: "license", Type: "job", Domain: "workflow", Required: true, Image: "license-runner", Command: []string{"/app/validate-entitlement"}, SecretRefs: []string{"entitlement"}, Script: checkContract("license"), TimeoutSeconds: 30}
 	r.Spec.Checks = append(r.Spec.Checks, check)
 	check.Image, check.Command = "legacy-runner", []string{"/legacy/validate-entitlement"}
 	check.Script = checkContract("license")

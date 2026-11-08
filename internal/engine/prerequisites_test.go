@@ -36,7 +36,7 @@ func licensedRun(t *testing.T) (*Engine, *fake.Clientset, spec.TrustPolicy, spec
 	r := &v.Index.Lock.Release
 	r.Spec.Assets = append(r.Spec.Assets, spec.Asset{ID: "renewal", Type: "file", Source: "renewal.txt"})
 	r.Spec.License = &spec.LicenseRequirement{Mode: "offline", SecretRef: "entitlement", Check: "entitlement", MaxAgeSeconds: 3600, RenewalAsset: "renewal"}
-	check := spec.Check{ID: "entitlement", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"/app/validate-entitlement"}, SecretRefs: []string{"entitlement"}, Script: fixtureScript("entitlement")}
+	check := spec.Check{ID: "entitlement", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"/app/validate-entitlement"}, SecretRefs: []string{"entitlement"}, Script: fixtureScript("entitlement"), TimeoutSeconds: 1}
 	check.Script.Retry = "manual"
 	r.Spec.Checks = append(r.Spec.Checks, check)
 	r.Spec.Recovery[0].Checks = r.Spec.Checks
@@ -193,7 +193,7 @@ func TestOptionalJobCheckCannotReplaceRequiredAcceptance(t *testing.T) {
 		t.Run(map[bool]string{false: "optional-fails", true: "required-fails"}[requiredFails], func(t *testing.T) {
 			e, client, policy := fixture(t)
 			p, v := fixturePlan(t, e, policy)
-			check := spec.Check{ID: "optional", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/optional"}, Script: fixtureScript("optional")}
+			check := spec.Check{ID: "optional", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/optional"}, Script: fixtureScript("optional"), TimeoutSeconds: 1}
 			check.Script.Retry = "manual"
 			v.Index.Lock.Release.Spec.Checks = append(v.Index.Lock.Release.Spec.Checks, check)
 			p.Checks = v.Index.Lock.Release.Spec.Checks

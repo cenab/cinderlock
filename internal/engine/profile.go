@@ -55,12 +55,28 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 			block("JOB_VOLUME_UNSUPPORTED", "selected Job needs a named PVC and a clean absolute non-root mount distinct from /tmp: "+o.ID)
 		}
 	}
+	checkResources := func(script *spec.ScriptContract, id, code string) {
+		var resources *spec.WorkerResources
+		if script != nil {
+			resources = script.Resources
+		}
+		if err := spec.ValidateWorkerResources(resources); err != nil {
+			block(code, id+": "+err.Error())
+		}
+	}
 	seeds := map[string]bool{}
 	for _, o := range p.Operations {
+		authored := isJob(o.Type) || o.Type == "seed" && len(o.Command) != 0
+		if authored {
+			checkResources(o.Script, o.ID, "OPERATION_RESOURCES_UNSUPPORTED")
+		}
+		if o.Type != "probe" && (o.NodeName != "" || o.NodeUID != "" || o.GPUCount != 0) {
+			block("OPERATION_NODE_GPU_UNSUPPORTED", "authored node metadata and GPU allocation are unsupported: "+o.ID)
+		}
 		if o.ExpectedExitCode != 0 {
 			block("OPERATION_EXIT_UNSUPPORTED", "selected operation requires unsupported nonzero expected exit code: "+o.ID)
 		}
-		if o.TimeoutSeconds < 0 || o.TimeoutSeconds > 86400 {
+		if o.TimeoutSeconds < 0 || o.TimeoutSeconds > spec.WorkerMaxTimeoutSeconds || authored && o.TimeoutSeconds == 0 {
 			block("OPERATION_TIMEOUT_UNSUPPORTED", "selected operation timeout exceeds the supported profile: "+o.ID)
 		}
 		checkSecrets(o.SecretRefs, o.ID)
@@ -139,6 +155,9 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 		if c.ObservationContract != nil && c.ObservationContract.Profile != e.Site.Spec.Profile {
 			block("OBSERVATION_PROFILE_MISMATCH", "application observation contract differs from selected site profile: "+c.ID)
 		}
+		if c.Type == "job" {
+			checkResources(c.Script, c.ID, "CHECK_RESOURCES_UNSUPPORTED")
+		}
 		ref := c.Image
 		if ref == "" {
 			ref = e.Site.Spec.HelperImage
@@ -148,7 +167,7 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 		if c.ExpectedExitCode != 0 {
 			block("CHECK_EXIT_UNSUPPORTED", "selected check requires unsupported nonzero expected exit code: "+c.ID)
 		}
-		if c.TimeoutSeconds < 0 || c.TimeoutSeconds > 86400 {
+		if c.TimeoutSeconds < 0 || c.TimeoutSeconds > spec.WorkerMaxTimeoutSeconds || c.Type == "job" && c.TimeoutSeconds == 0 {
 			block("CHECK_TIMEOUT_UNSUPPORTED", "selected check timeout exceeds the supported profile: "+c.ID)
 		}
 		switch c.Type {

@@ -45,7 +45,7 @@ func TestUnknownImportAssetCannotReportSuccess(t *testing.T) {
 
 func TestExecutionProfileRejectsKnownUnsupportedRecipes(t *testing.T) {
 	for _, scenario := range []struct{ name, code string }{
-		{"operation-image", "OPERATION_IMAGE_MISSING"}, {"operation-exit", "OPERATION_EXIT_UNSUPPORTED"}, {"import-unknown", "IMPORT_ASSET_MISSING"}, {"import-wrong-type", "IMPORT_ASSET_MISSING"}, {"import-empty", "IMPORT_ASSET_MISSING"}, {"seed-carrier", "OPERATION_IMAGE_MISSING"}, {"seed-capacity", "SEED_PROFILE_UNSUPPORTED"}, {"seed-mount", "JOB_VOLUME_UNSUPPORTED"}, {"seed-command", "OPERATION_COMMAND_MISSING"}, {"operation-file-secret", "JOB_SECRET_FILE_UNSUPPORTED"}, {"check-file-secret", "JOB_SECRET_FILE_UNSUPPORTED"}, {"check-exit", "CHECK_EXIT_UNSUPPORTED"}, {"http-method", "HTTP_METHOD_UNSUPPORTED"}, {"http-host", "HTTP_HOST_NOT_ALLOWED"},
+		{"operation-image", "OPERATION_IMAGE_MISSING"}, {"operation-exit", "OPERATION_EXIT_UNSUPPORTED"}, {"operation-node-name", "OPERATION_NODE_GPU_UNSUPPORTED"}, {"operation-node-uid", "OPERATION_NODE_GPU_UNSUPPORTED"}, {"operation-gpu", "OPERATION_NODE_GPU_UNSUPPORTED"}, {"operation-negative-gpu", "OPERATION_NODE_GPU_UNSUPPORTED"}, {"import-unknown", "IMPORT_ASSET_MISSING"}, {"import-wrong-type", "IMPORT_ASSET_MISSING"}, {"import-empty", "IMPORT_ASSET_MISSING"}, {"seed-carrier", "OPERATION_IMAGE_MISSING"}, {"seed-capacity", "SEED_PROFILE_UNSUPPORTED"}, {"seed-mount", "JOB_VOLUME_UNSUPPORTED"}, {"seed-command", "OPERATION_COMMAND_MISSING"}, {"operation-file-secret", "JOB_SECRET_FILE_UNSUPPORTED"}, {"check-file-secret", "JOB_SECRET_FILE_UNSUPPORTED"}, {"check-exit", "CHECK_EXIT_UNSUPPORTED"}, {"http-method", "HTTP_METHOD_UNSUPPORTED"}, {"http-host", "HTTP_HOST_NOT_ALLOWED"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			e, _, policy := fixture(t)
@@ -67,6 +67,14 @@ func TestExecutionProfileRejectsKnownUnsupportedRecipes(t *testing.T) {
 				o.Image = "absent"
 			case "operation-exit":
 				o.ExpectedExitCode = 3
+			case "operation-node-name":
+				o.NodeName = "node"
+			case "operation-node-uid":
+				o.NodeUID = "node-uid"
+			case "operation-gpu":
+				o.GPUCount = 1
+			case "operation-negative-gpu":
+				o.GPUCount = -1
 			case "import-unknown":
 				*o = spec.Operation{ID: o.ID, Type: "import", Asset: "missing"}
 			case "import-wrong-type":
@@ -94,6 +102,7 @@ func TestExecutionProfileRejectsKnownUnsupportedRecipes(t *testing.T) {
 			case "http-method", "http-host":
 				c := &p.Checks[0]
 				c.Type = "http"
+				c.Script = nil
 				c.Command = nil
 				c.URL = "http://api:8080/health"
 				c.ExpectedStatus = 200

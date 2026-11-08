@@ -5,14 +5,48 @@ import (
 	"time"
 )
 
+const (
+	WorkerMaxCPUMillis      int64 = 64000
+	WorkerMaxBytes          int64 = 1 << 40
+	WorkerMaxTimeoutSeconds int64 = 86400
+)
+
+type WorkerResources struct {
+	CPUMillis             int64 `json:"cpuMillis" yaml:"cpuMillis"`
+	MemoryBytes           int64 `json:"memoryBytes" yaml:"memoryBytes"`
+	EphemeralStorageBytes int64 `json:"ephemeralStorageBytes" yaml:"ephemeralStorageBytes"`
+	TemporaryBytes        int64 `json:"temporaryBytes" yaml:"temporaryBytes"`
+	GPUCount              int64 `json:"gpuCount" yaml:"gpuCount"`
+}
+
+func ValidateWorkerResources(r *WorkerResources) error {
+	if r == nil {
+		return Err(2, "authored worker requires resources")
+	}
+	if r.CPUMillis < 1 || r.CPUMillis > WorkerMaxCPUMillis {
+		return Err(2, "worker resources cpuMillis must be 1..%d", WorkerMaxCPUMillis)
+	}
+	if r.MemoryBytes < 1 || r.MemoryBytes > WorkerMaxBytes || r.EphemeralStorageBytes < 1 || r.EphemeralStorageBytes > WorkerMaxBytes {
+		return Err(2, "worker resources memoryBytes and ephemeralStorageBytes must be 1..%d", WorkerMaxBytes)
+	}
+	if r.TemporaryBytes < 1 || r.TemporaryBytes > r.EphemeralStorageBytes {
+		return Err(2, "worker resources temporaryBytes must be positive and at most ephemeralStorageBytes")
+	}
+	if r.GPUCount != 0 {
+		return Err(2, "worker resources gpuCount must be zero; authored GPU allocation is unsupported")
+	}
+	return nil
+}
+
 // ScriptContract holds declarations, not executable expressions or permission
 // grants. Application authors remain responsible for their actual effects.
 type ScriptContract struct {
-	Inputs        []string `json:"inputs" yaml:"inputs"`
-	Permissions   []string `json:"permissions" yaml:"permissions"`
-	SideEffects   []string `json:"sideEffects" yaml:"sideEffects"`
-	SuccessChecks []string `json:"successChecks" yaml:"successChecks"`
-	Retry         string   `json:"retry" yaml:"retry"`
+	Inputs        []string         `json:"inputs" yaml:"inputs"`
+	Permissions   []string         `json:"permissions" yaml:"permissions"`
+	SideEffects   []string         `json:"sideEffects" yaml:"sideEffects"`
+	SuccessChecks []string         `json:"successChecks" yaml:"successChecks"`
+	Retry         string           `json:"retry" yaml:"retry"`
+	Resources     *WorkerResources `json:"resources" yaml:"resources"`
 }
 
 func isScriptOperation(o Operation) bool {
@@ -34,6 +68,9 @@ func validateScriptContract(o Operation) error {
 	}
 	if err := validateScriptDeclaration(o.ID, o.Script); err != nil {
 		return err
+	}
+	if o.TimeoutSeconds < 1 || o.TimeoutSeconds > WorkerMaxTimeoutSeconds {
+		return Err(2, "script operation %s timeoutSeconds must be 1..%d", o.ID, WorkerMaxTimeoutSeconds)
 	}
 	if o.Image == "" || !validContractArgv(o.Command, true) || !validContractArgv(o.Args, false) || len(o.ReconcileCommand) != 0 && !validContractArgv(o.ReconcileCommand, true) {
 		return Err(2, "script operation %s requires an image and bounded explicit argv without NUL bytes", o.ID)
@@ -65,6 +102,9 @@ func validateCheckScript(c Check) error {
 	if err := validateScriptDeclaration(c.ID, c.Script); err != nil {
 		return err
 	}
+	if c.TimeoutSeconds < 1 || c.TimeoutSeconds > WorkerMaxTimeoutSeconds {
+		return Err(2, "Job check %s timeoutSeconds must be 1..%d", c.ID, WorkerMaxTimeoutSeconds)
+	}
 	if c.Script.Retry == "reconcilable" {
 		return Err(2, "check %s cannot use unsupported authored reconciliation; use retry-safe or manual", c.ID)
 	}
@@ -74,6 +114,9 @@ func validateCheckScript(c Check) error {
 func validateScriptDeclaration(id string, contract *ScriptContract) error {
 	if contract == nil {
 		return Err(2, "script %s requires a script contract", id)
+	}
+	if err := ValidateWorkerResources(contract.Resources); err != nil {
+		return Err(2, "script %s: %v", id, err)
 	}
 	for _, field := range []struct {
 		name   string

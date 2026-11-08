@@ -39,20 +39,25 @@ type jobOptions struct {
 	IntentStepID      string
 	Fixtures          []fixtureBinding
 	Endpoint          *spec.Check
-}
-
-func (e *Engine) executeJob(ctx context.Context, runID, stepID, image string, command, args, secretRefs []string, pvc, mount string, timeout int64) (string, error) {
-	return e.executeJobWithOptions(ctx, runID, stepID, image, command, args, secretRefs, pvc, mount, timeout, nil)
+	Resources         *spec.WorkerResources
 }
 
 func (e *Engine) executeJobWithOptions(ctx context.Context, runID, stepID, image string, command, args, secretRefs []string, pvc, mount string, timeout int64, options *jobOptions) (string, error) {
 	if len(command) == 0 {
 		return "", spec.Err(10, "Job entrypoint is required")
 	}
+	if options != nil && options.Resources != nil {
+		if err := spec.ValidateWorkerResources(options.Resources); err != nil {
+			return "", err
+		}
+		if timeout < 1 || timeout > spec.WorkerMaxTimeoutSeconds {
+			return "", spec.Err(2, "authored Job timeoutSeconds must be 1..%d", spec.WorkerMaxTimeoutSeconds)
+		}
+	}
 	if timeout <= 0 {
 		timeout = 300
 	}
-	if timeout > 86400 {
+	if timeout > spec.WorkerMaxTimeoutSeconds {
 		return "", spec.Err(2, "Job timeout exceeds one day")
 	}
 	name := jobName(runID, stepID)
@@ -61,6 +66,17 @@ func (e *Engine) executeJobWithOptions(ctx context.Context, runID, stepID, image
 	yes := true
 	no := false
 	container := corev1.Container{Name: "operation", Image: image, ImagePullPolicy: corev1.PullIfNotPresent, Command: command, Args: args, Env: []corev1.EnvVar{{Name: "CINDERLOCK_RUN_ID", Value: runID}, {Name: "CINDERLOCK_OPERATION_ID", Value: runID + "/" + stepID}}, SecurityContext: &corev1.SecurityContext{RunAsNonRoot: &yes, RunAsUser: &uid, AllowPrivilegeEscalation: &no, ReadOnlyRootFilesystem: &yes, Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("64Mi")}, Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("256Mi")}}, VolumeMounts: []corev1.VolumeMount{{Name: "temporary", MountPath: "/tmp"}}}
+	limit := resource.MustParse("16Mi")
+	if options != nil && options.Resources != nil {
+		r := options.Resources
+		container.Resources.Requests = corev1.ResourceList{
+			corev1.ResourceCPU:              *resource.NewMilliQuantity(r.CPUMillis, resource.DecimalSI),
+			corev1.ResourceMemory:           *resource.NewQuantity(r.MemoryBytes, resource.BinarySI),
+			corev1.ResourceEphemeralStorage: *resource.NewQuantity(r.EphemeralStorageBytes, resource.BinarySI),
+		}
+		container.Resources.Limits = container.Resources.Requests.DeepCopy()
+		limit = *resource.NewQuantity(r.TemporaryBytes, resource.BinarySI)
+	}
 	if options != nil && options.Input != nil {
 		container.Stdin = true
 		container.StdinOnce = true
@@ -96,7 +112,6 @@ func (e *Engine) executeJobWithOptions(ctx context.Context, runID, stepID, image
 		}
 		container.Env = append(container.Env, corev1.EnvVar{Name: envName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.Name}, Key: ref.Key}}})
 	}
-	limit := resource.MustParse("16Mi")
 	volumes := []corev1.Volume{{Name: "temporary", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: &limit}}}}
 	if pvc != "" {
 		if mount == "" || !strings.HasPrefix(mount, "/") || mount == "/" {
@@ -278,15 +293,15 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	if result.Domain == "" {
 		result.Domain = "workflow"
 	}
-	if c.ObservationContract != nil {
+	if c.Type == "job" || c.ObservationContract != nil {
 		if err := spec.ValidateCheck(c); err != nil {
 			result.Reason = err.Error()
 			return result
 		}
-		if c.ObservationContract.Profile != e.Site.Spec.Profile {
-			result.Reason = "observation contract profile differs from selected site profile"
-			return result
-		}
+	}
+	if c.ObservationContract != nil && c.ObservationContract.Profile != e.Site.Spec.Profile {
+		result.Reason = "observation contract profile differs from selected site profile"
+		return result
 	}
 	var fixturePlan spec.Plan
 	var fixtures []fixtureBinding
@@ -313,6 +328,9 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	command := c.Command
 	args := []string{}
 	options := &jobOptions{Fixtures: fixtures}
+	if c.Type == "job" {
+		options.Resources = c.Script.Resources
+	}
 	timeout := c.TimeoutSeconds
 	if c.Type == "endpoint" {
 		command, args, options, err = e.endpointJob(c, v)
@@ -441,6 +459,11 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 }
 
 func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v *bundle.Verified) (string, error) {
+	if len(o.Command) != 0 {
+		if err := spec.ValidateOperation(o); err != nil {
+			return "", err
+		}
+	}
 	if len(o.Command) == 0 && (!spec.ValidDigest(e.Site.Spec.HelperImage) || o.Image != "" || len(o.Args) != 0 || len(o.SecretRefs) != 0 || !nativeMountSupported(o.MountPath)) {
 		return "", spec.Err(10, "native staging needs an independently pinned fixed helper and supported mount, without carrier image, arguments or secrets")
 	}
@@ -487,7 +510,7 @@ func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v 
 	if err != nil {
 		return "", err
 	}
-	seedJob, err := e.executeJob(ctx, runID, o.ID, image, o.Command, o.Args, o.SecretRefs, o.PVC, o.MountPath, o.TimeoutSeconds)
+	seedJob, err := e.executeJobWithOptions(ctx, runID, o.ID, image, o.Command, o.Args, o.SecretRefs, o.PVC, o.MountPath, o.TimeoutSeconds, &jobOptions{Resources: o.Script.Resources})
 	if err != nil {
 		return seedJob, err
 	}

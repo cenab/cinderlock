@@ -33,6 +33,41 @@ its expected result. The application author must make that recipe test the
 promised behavior. Optional results never replace required acceptance, and
 neither a named check nor exit zero proves untested application properties.
 
+## Worker resources
+
+Every authored `job`, `migrate`, `backup`, `reindex`, custom seed command, and
+Job check must declare `script.resources` and its own `timeoutSeconds` from
+1 through 86,400. Resource values are integers. These provisional caps define
+the supported preview CPU worker profile:
+
+| Field | Supported allocation |
+| --- | --- |
+| `cpuMillis` | 1..64,000 milliCPU |
+| `memoryBytes` | 1..1,099,511,627,776 bytes |
+| `ephemeralStorageBytes` | 1..1,099,511,627,776 bytes |
+| `temporaryBytes` | Positive bytes, at most `ephemeralStorageBytes` |
+| `gpuCount` | Exactly 0 |
+
+The main worker receives one allocation: CPU, memory, and ephemeral-storage
+requests and limits each equal the declared value. CPU use can be throttled at
+that limit. The disk-backed `/tmp` EmptyDir has `temporaryBytes` as its size
+limit; `/tmp` counts within the ephemeral-storage allocation, not in addition
+to it. The ephemeral budget also covers container logs and writable layers.
+Cluster enforcement, admission, quotas, scheduling, and available
+storage remain separate; the declaration provides no availability or reservation
+guarantee. PVC capacity and external storage remain independent.
+
+Authored GPU allocations, including negative counts, and authored operation
+`nodeName`, `nodeUID`, or `gpuCount` overrides are unsupported. The existing
+full-device probe and application chart qualification paths stay separate.
+Fixed fixture verifiers, native seed/model helpers, probes, HTTP checks, and
+endpoint helpers keep their admitted defaults.
+
+The signed release, exact approved Plan, durable intent, and original Job recipe
+bind these amounts and the deadline. Resume does not resize or duplicate a
+retained worker. Changing its allocation requires a new approved recipe and
+resolution of the original worker's outcome.
+
 ## Retry classification
 
 Classification does not enable automatic repetition. Every worker keeps the
@@ -91,8 +126,9 @@ admitted vendor release content. Cinderlock does not renew licenses, bypass
 activation, or change license terms.
 
 This preview requires explicit declarations on existing authored scripts and
-Job checks. Older declarations, locks, and bundles without them must be
-reauthored, relocked, rebuilt, and replanned; never edit signed metadata in place.
+Job checks, including worker resources and explicit timeouts. Older declarations,
+locks, and bundles without them must be reauthored, relocked, rebuilt, and
+replanned; never edit signed metadata in place.
 
 [Endpoint prerequisites](endpoint-preflight.md) use a separate fixed adapter to
 observe existing routes from the helper Job network before application mutation.

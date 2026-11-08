@@ -11,7 +11,7 @@ import (
 )
 
 func checkScript(id string) *spec.ScriptContract {
-	return &spec.ScriptContract{Inputs: []string{"locked runner image and explicit check argv"}, Permissions: []string{"synthetic application check; no Kubernetes API token"}, SideEffects: []string{"declared synthetic application probe"}, SuccessChecks: []string{id}, Retry: "manual"}
+	return &spec.ScriptContract{Inputs: []string{"locked runner image and explicit check argv"}, Permissions: []string{"synthetic application check; no Kubernetes API token"}, SideEffects: []string{"declared synthetic application probe"}, SuccessChecks: []string{id}, Retry: "manual", Resources: &spec.WorkerResources{CPUMillis: 100, MemoryBytes: 256 << 20, EphemeralStorageBytes: 64 << 20, TemporaryBytes: 16 << 20}}
 }
 
 func TestSourceAuthMustRemainOutsideRelease(t *testing.T) {
@@ -22,7 +22,7 @@ func TestSourceAuthMustRemainOutsideRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A complete release is needed to reach source admission.
-	release.Spec.Checks = []spec.Check{{ID: "application", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"true"}}}
+	release.Spec.Checks = []spec.Check{{ID: "application", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"true"}, TimeoutSeconds: 30}}
 	release.Spec.Checks[0].Script = checkScript("application")
 	release.Spec.Assets = []spec.Asset{{ID: "runner", Type: "image", Source: "example.invalid/runner:1"}}
 	release.Spec.Operations = []spec.Operation{{ID: "deploy", Type: "helm"}}

@@ -92,6 +92,7 @@ func TestEndpointJobIsFixedPrerequisiteAndNeverBlindlyRepeated(t *testing.T) {
 				if container.Command[0] != "/usr/local/bin/cinderlock" {
 					return false, nil, nil
 				}
+				assertJobBudget(t, job, nil, spec.EndpointDefaultTimeoutSeconds)
 				if !slices.Equal(container.Command, []string{"/usr/local/bin/cinderlock", "helper", "endpoint-probe"}) || container.Image != e.Site.Spec.Registry+"/helper@"+e.Site.Spec.HelperImage {
 					t.Fatalf("endpoint did not use the independently pinned fixed helper: %#v", container)
 				}

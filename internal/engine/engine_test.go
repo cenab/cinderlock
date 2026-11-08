@@ -107,11 +107,11 @@ func fixturePlan(t *testing.T, e *Engine, policy spec.TrustPolicy) (spec.Plan, *
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := spec.Release{Header: spec.NewHeader("Release"), Spec: spec.ReleaseSpec{Profile: "cpu-test", Operations: []spec.Operation{{ID: "migration", Type: "migrate", Image: "runner", Command: []string{"/bin/true"}, Idempotent: true}}, Checks: []spec.Check{{ID: "inference", Type: "job", Required: true, Image: "runner", Command: []string{"/bin/true"}, Domain: "workflow"}}, RequiredChecks: []string{"inference"}, Transitions: []spec.Transition{{ID: "upgrade", FromRelease: "1.0.0", Operations: []string{"migration"}}}}}
+	r := spec.Release{Header: spec.NewHeader("Release"), Spec: spec.ReleaseSpec{Profile: "cpu-test", Operations: []spec.Operation{{ID: "migration", Type: "migrate", Image: "runner", Command: []string{"/bin/true"}, Idempotent: true, TimeoutSeconds: 1}}, Checks: []spec.Check{{ID: "inference", Type: "job", Required: true, Image: "runner", Command: []string{"/bin/true"}, Domain: "workflow", TimeoutSeconds: 1}}, RequiredChecks: []string{"inference"}, Transitions: []spec.Transition{{ID: "upgrade", FromRelease: "1.0.0", Operations: []string{"migration"}}}}}
 	r.Metadata = spec.Metadata{Application: "app", Version: "2.0.0", Channel: "stable", Sequence: 2}
 	r.Spec.Deployment = spec.Deployment{Type: "helm", Chart: "chart.tgz"}
 	r.Spec.Assets = []spec.Asset{{ID: "runner", Type: "image", Source: "registry.invalid/runner:1"}}
-	r.Spec.Recovery = []spec.Recovery{{ID: "repair", ToRelease: "2.0.0", Operations: []spec.Operation{{ID: "repair", Type: "job", Image: "runner", Command: []string{"/bin/true"}, Idempotent: true}}, Checks: r.Spec.Checks}}
+	r.Spec.Recovery = []spec.Recovery{{ID: "repair", ToRelease: "2.0.0", Operations: []spec.Operation{{ID: "repair", Type: "job", Image: "runner", Command: []string{"/bin/true"}, Idempotent: true, TimeoutSeconds: 1}}, Checks: r.Spec.Checks}}
 	r.Spec.Operations[0].Script = fixtureScript("inference")
 	r.Spec.Checks[0].Script = fixtureScript("inference")
 	r.Spec.Recovery[0].Operations[0].Script = fixtureScript("inference")
@@ -133,7 +133,7 @@ func fixturePlan(t *testing.T, e *Engine, policy spec.TrustPolicy) (spec.Plan, *
 }
 
 func fixtureScript(check string) *spec.ScriptContract {
-	return &spec.ScriptContract{Inputs: []string{"locked runner image and explicit argv"}, Permissions: []string{"synthetic test access; no Kubernetes API token"}, SideEffects: []string{"only the test recipe declared in argv"}, SuccessChecks: []string{check}, Retry: "retry-safe"}
+	return &spec.ScriptContract{Inputs: []string{"locked runner image and explicit argv"}, Permissions: []string{"synthetic test access; no Kubernetes API token"}, SideEffects: []string{"only the test recipe declared in argv"}, SuccessChecks: []string{check}, Retry: "retry-safe", Resources: &spec.WorkerResources{CPUMillis: 100, MemoryBytes: 256 << 20, EphemeralStorageBytes: 64 << 20, TemporaryBytes: 16 << 20}}
 }
 
 func TestInspectionIsReadOnlyAndStatusChurnDoesNotInvalidatePlan(t *testing.T) {
@@ -213,7 +213,7 @@ func TestSignedRecipeBindingRejectsChangedCommandsAndDroppedChecks(t *testing.T)
 
 func TestAuthorizationRequiresSeparateApprovalRoleAndExactPlan(t *testing.T) {
 	e, _, policy := fixture(t)
-	p, _ := fixturePlan(t, e, policy)
+	p, v := fixturePlan(t, e, policy)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +235,40 @@ func TestAuthorizationRequiresSeparateApprovalRoleAndExactPlan(t *testing.T) {
 	_ = spec.SignAuthorization(&a, private, "customer")
 	if _, err := e.authorize(p, policy, &a, false); err != nil {
 		t.Fatal(err)
+	}
+	for _, change := range []struct {
+		name string
+		edit func(*spec.WorkerResources, *int64)
+	}{
+		{"cpu", func(r *spec.WorkerResources, _ *int64) { r.CPUMillis++ }},
+		{"memory", func(r *spec.WorkerResources, _ *int64) { r.MemoryBytes++ }},
+		{"ephemeral", func(r *spec.WorkerResources, _ *int64) { r.EphemeralStorageBytes++ }},
+		{"temporary", func(r *spec.WorkerResources, _ *int64) { r.TemporaryBytes++ }},
+		{"timeout", func(_ *spec.WorkerResources, seconds *int64) { (*seconds)++ }},
+	} {
+		for _, owner := range []string{"operation", "check"} {
+			t.Run(owner+"/"+change.name, func(t *testing.T) {
+				body, err := spec.Canonical(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var changed spec.Plan
+				if err := spec.Decode(body, &changed); err != nil {
+					t.Fatal(err)
+				}
+				if owner == "operation" {
+					change.edit(changed.Operations[0].Script.Resources, &changed.Operations[0].TimeoutSeconds)
+				} else {
+					change.edit(changed.Checks[0].Script.Resources, &changed.Checks[0].TimeoutSeconds)
+				}
+				if _, err := e.authorize(changed, policy, &a, false); spec.ExitCode(err) != 16 {
+					t.Fatalf("changed allocation reused exact-plan approval: %v", err)
+				}
+				if err := e.verifyRecipeBinding(changed, v); spec.ExitCode(err) != 12 {
+					t.Fatalf("changed allocation matched signed release: %v", err)
+				}
+			})
+		}
 	}
 	a.TargetID = "another-target"
 	_ = spec.SignAuthorization(&a, private, "customer")

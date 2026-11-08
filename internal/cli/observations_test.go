@@ -17,7 +17,7 @@ func recordObservation(t *testing.T, h *harness, id, version string) {
 	t.Helper()
 	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Profile: "cpu-test"}}
 	site.Metadata.Name = "test-site"
-	plan := spec.Plan{Header: spec.NewHeader("Plan"), Snapshot: spec.TargetSnapshot{TargetID: "test-target", SiteID: site.Metadata.Name}, BundleDigest: spec.Hash([]byte(version)), Checks: []spec.Check{{ID: "application", Domain: "workflow", Required: true, Type: "job", Image: "runner", Command: []string{"verify"}}}, RequiredChecks: []string{"application"}}
+	plan := spec.Plan{Header: spec.NewHeader("Plan"), Snapshot: spec.TargetSnapshot{TargetID: "test-target", SiteID: site.Metadata.Name}, BundleDigest: spec.Hash([]byte(version)), Checks: []spec.Check{{ID: "application", Domain: "workflow", Required: true, Type: "job", Image: "runner", Command: []string{"verify"}, TimeoutSeconds: 30}}, RequiredChecks: []string{"application"}}
 	plan.Checks[0].Script = checkScript("application")
 	plan.Metadata = spec.Metadata{Application: "fixture", Version: version, Channel: "stable", Sequence: 1}
 	plan.SiteDigest, _ = spec.Digest(site)
