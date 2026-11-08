@@ -226,12 +226,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 				return fail(err)
 			}
 			r := e.recordedObservationCheck(ctx, record, check, spec.CheckResult{ID: check.ID, Domain: check.Domain, Required: check.Required, Status: "blocked"})
-			index := slices.IndexFunc(result.Checks, func(r spec.CheckResult) bool { return r.ID == check.ID })
-			if index < 0 {
-				result.Checks = append(result.Checks, r)
-			} else {
-				result.Checks[index] = r
-			}
+			mergeCheckResults(&result, []spec.CheckResult{r})
 			if r.Required && r.Status != "pass" && result.Domains["workflow"] != "fail" {
 				result.Domains["workflow"] = r.Status
 			}
@@ -286,7 +281,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 				recordPrerequisiteFailure(&result, checks)
 				return fail(err)
 			}
-			result.Checks = checks
+			mergeCheckResults(&result, checks)
 			before, err = checkBoundary()
 			if err != nil {
 				return fail(err)
@@ -411,12 +406,11 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	for _, id := range p.RequiredChecks {
 		required[id] = true
 	}
-	result.Checks = []spec.CheckResult{}
 	for _, check := range p.Checks {
 		check.Required = check.Required || required[check.ID]
 		if !slices.Contains(e.Site.Spec.AllowedActions, "job") || !slices.Contains(policy.Spec.AllowedActions, "job") {
 			r := spec.CheckResult{ID: check.ID, Domain: check.Domain, Required: check.Required, Status: "blocked", Reason: "acceptance Job capability not authorized"}
-			result.Checks = append(result.Checks, r)
+			mergeCheckResults(&result, []spec.CheckResult{r})
 			continue
 		}
 		if _, err := checkBoundary(); err != nil {
@@ -435,7 +429,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			return fail(err)
 		}
 		r := e.check(ctx, result.RunID, check, v)
-		result.Checks = append(result.Checks, r)
+		mergeCheckResults(&result, []spec.CheckResult{r})
 		if r.Status == "blocked" {
 			attempt, err := e.Store.LatestOperation(ctx, result.RunID, checkStepID(check.ID))
 			if err == nil && (attempt.State == "intent" || attempt.State == "uncertain") {

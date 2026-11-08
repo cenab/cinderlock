@@ -318,6 +318,7 @@ func TestPrerequisiteWaitRevalidatesExecutionBoundary(t *testing.T) {
 					}
 					secret := object.(*corev1.Secret)
 					secret.ResourceVersion = "2"
+					secret.Data["token"] = []byte("changed-entitlement")
 					if err := client.Tracker().Update(resource, secret, "test"); err != nil {
 						t.Fatal(err)
 					}

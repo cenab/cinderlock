@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cenab/cinderlock/internal/spec"
 	"github.com/cenab/cinderlock/internal/state"
@@ -464,4 +465,47 @@ func TestObservationProfileMismatchBlocksPlanning(t *testing.T) {
 		}
 	}
 	t.Fatal("incompatible observation profile did not block planning")
+}
+
+func TestPrerequisiteRefreshPreservesObservedSamplesOnLaterFailure(t *testing.T) {
+	e, client, policy, p, v := licensedRun(t)
+	p.Checks[0].ObservationContract = observationContract()
+	const runID = "observed-license-resume"
+	storeResumePlan(t, e, p, v, runID)
+	completedObservationWorker(t, client)
+	output, err := spec.Canonical(observationReport(t, p.Checks[0].ObservationContract))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.PodLogReader = func(context.Context, string) ([]byte, error) { return output, nil }
+	initial := e.check(context.Background(), runID, p.Checks[0], v)
+	if initial.Status != "pass" {
+		t.Fatalf("original numeric check did not pass: %#v", initial)
+	}
+	client.PrependReactor("get", "jobs", func(action ktesting.Action) (bool, runtime.Object, error) {
+		name := action.(ktesting.GetAction).GetName()
+		object, err := client.Tracker().Get(batchv1.SchemeGroupVersion.WithResource("jobs"), "test", name)
+		if err != nil {
+			return true, nil, err
+		}
+		job := object.(*batchv1.Job).DeepCopy()
+		if name == jobName(runID, checkStepID("entitlement")) {
+			stamp := metav1.NewTime(time.Now().Add(-time.Second))
+			job.Status.CompletionTime = &stamp
+		}
+		if name == jobName(runID, "migration") {
+			job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobFailed, Status: corev1.ConditionTrue}}
+		}
+		return true, job, nil
+	})
+	result, err := e.Resume(context.Background(), runID, v, policy, nil, true)
+	if err == nil {
+		t.Fatal("deliberately failed migration was accepted")
+	}
+	for _, check := range result.Checks {
+		if check.ID == initial.ID && check.Observations != nil && check.Observations.Report != nil && len(check.Observations.Report.Samples) == 2 && *check.Observations.Report.Samples[1].Metrics[1].Value == 50 {
+			return
+		}
+	}
+	t.Fatalf("prerequisite refresh lost original samples before later migration failure: %#v, error=%v", result.Checks, err)
 }

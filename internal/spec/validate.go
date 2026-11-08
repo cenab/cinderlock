@@ -248,7 +248,7 @@ func ValidateCheck(c Check) error {
 		return Err(2, "unsupported check type %q", c.Type)
 	}
 	if c.ObservationContract != nil {
-		if c.Type != "job" || c.ExpectedExitCode != 0 || c.TimeoutSeconds < 0 || c.TimeoutSeconds > 86400 {
+		if c.Type != "job" || c.ExpectedExitCode != 0 {
 			return Err(2, "observations require a successful Job check with a bounded timeout")
 		}
 		return ValidateObservationContract(*c.ObservationContract)

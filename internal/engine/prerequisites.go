@@ -33,15 +33,21 @@ func prerequisiteCheckIDs(p spec.Plan, v *bundle.Verified) []string {
 
 func recordPrerequisiteFailure(result *spec.RunResult, checks []spec.CheckResult) {
 	result.Domains["workflow"] = "blocked"
+	mergeCheckResults(result, checks)
+	for _, check := range checks {
+		if check.Status == "fail" {
+			result.Domains["workflow"] = "fail"
+		}
+	}
+}
+
+func mergeCheckResults(result *spec.RunResult, checks []spec.CheckResult) {
 	for _, check := range checks {
 		index := slices.IndexFunc(result.Checks, func(prior spec.CheckResult) bool { return prior.ID == check.ID })
 		if index < 0 {
 			result.Checks = append(result.Checks, check)
 		} else {
 			result.Checks[index] = check
-		}
-		if check.Status == "fail" {
-			result.Domains["workflow"] = "fail"
 		}
 	}
 }
