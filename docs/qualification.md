@@ -68,16 +68,17 @@ requested in those checks. This isn't a complete accessibility certification.
 
 ## Hosted core baseline
 
-[GitHub run 42450645426](https://github.com/cenab/cinderlock/actions/runs/42450645426)
-passed both Go and Kubernetes jobs for commit `7d81f2e` on November 8, 2026 UTC.
+[GitHub run 42455956767](https://github.com/cenab/cinderlock/actions/runs/42455956767)
+passed both Go and Kubernetes jobs for commit `0a73b09` on November 8, 2026 UTC.
 Its retained synthetic receipts show successful installation and upgrade,
 deliberate document-loss failure, and a separately successful recovery. The
 original failed release remains unaccepted. The source distribution was also
 compiled with network acquisition disabled.
 
-This baseline predates the later script, inventory, policy, GitOps and numeric
-observation passes. Local package/race and PostgreSQL checks on the combined
-code do not substitute for a new live qualification run.
+This baseline includes script, inventory, policy, numeric-contract and GitOps
+preparation code. Its live application fixture predates the later endpoint and
+measured numeric Jobs, explicit authored worker budgets and optional-failure
+resume correction. Their local checks do not substitute for a fresh native run.
 
 ## Reproduce and extend the evidence
 

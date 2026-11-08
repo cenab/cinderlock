@@ -141,6 +141,7 @@ workflow and the limits of the observed evidence.
 
 - [Architecture and trust boundaries](docs/architecture.md)
 - [Release scripts and offline prerequisites](docs/release-contracts.md)
+- [Fixed endpoint preflight](docs/endpoint-preflight.md)
 - [Kubernetes permission planning](docs/permissions.md)
 - [Configuration ownership and masked review](docs/configuration.md)
 - [Storage peaks and capacity assertions](docs/storage-planning.md)

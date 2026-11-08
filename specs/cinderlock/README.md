@@ -18,15 +18,20 @@ policy updates, server admission dry-runs, and the patched Helm toolchain.
 See the [qualification record](../../docs/qualification.md) for the evidence
 boundary. Local receipts remain private under `.local/qualification-004/`.
 
-Published core at `7d81f2e` passed hosted Go and real Kubernetes install, upgrade,
-failure and recovery CI. Numeric observations, script/entitlement contracts, inventory/ownership, policy
-packs, runtime evidence and GitOps image staging/source proposals are now merged
-locally. Requalify the combined tree; the published baseline does not cover
-these changes. Endpoint preflight, CPU observation integration tests and a bounded
-Argo controller observer are in progress. Authored worker resource budgets and
-GitOps model preparation/check execution follow.
-Keep new slices separate from the recorded baseline. Experimental journals
-without original worker/volume identities cannot serve as resume evidence.
+Published `0a73b09` passed hosted Go checks and the real CPU Kubernetes workflow.
+Later endpoint, explicit worker-budget and measured numeric Job changes are now
+merged; whole-tree local checks pass after fixture migration. Requalify these
+changes with the refreshed application/helper images under `.local/qualification-005/`.
+The owned builder is `cinderlock-qualification005`; retain exact source receipts.
+
+Finish the remaining F39 source/controller observation, model preparation and
+independently authorized application-check paths, then run the complete release
+gates and publish. A pinned Argo CD v3.6.1 core is running in the disposable
+`kind-cinderlock-test` cluster, namespace `cinderlock-argocd-lab`; its source/image
+and bootstrap identities are private under `.local/argocd-profile/`. No GitOps
+application workflow is qualified yet. New passes remain separate from the
+hosted core baseline, and incomplete original-worker identities cannot serve as
+resume evidence.
 
 The user will supply NVIDIA test hardware later. Keep GPU qualification open;
 continue all CPU, artifact, permission, security, catalog, and distribution work.

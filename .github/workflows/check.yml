@@ -151,6 +151,7 @@ jobs:
           name: kubernetes-results
           path: |
             ${{ runner.temp }}/integration/*-result.json
+            ${{ runner.temp }}/integration/*-endpoint.json
             ${{ runner.temp }}/integration/summary.json
             ${{ runner.temp }}/integration/recovery.html
           if-no-files-found: ignore

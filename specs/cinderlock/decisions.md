@@ -229,3 +229,31 @@ source blocks continuation. The design left this interruption distinction open.
 This avoids turning an optional bound into a required failure or rerunning the
 test to obtain better numbers; failed application workers retain their separate
 reconciliation requirements.
+
+
+### Endpoint prerequisites use a fixed, narrow transport
+
+**Verdict:** sound · **Confidence:** medium. **When:** endpoint integration.
+
+Before an application write, a customer can require a named internal route to
+return an expected status from the worker network. A fixed independently admitted
+helper uses verified TLS and explicit Secret roles; anonymous HTTP requires its
+own permission. Redirects, proxies, response bodies and arbitrary runner code are
+outside this profile. The design left transport scope open. This keeps credentials
+out of artifacts and status evidence, but does not validate a node's future pull
+credentials or establish license validity. Each prerequisite rechecks authority
+before starting; approved dollar signs remain literal through Kubernetes argv.
+
+### Authored workers declare one allocation for both request and limit
+
+**Verdict:** sound · **Confidence:** medium. **When:** worker-budget integration.
+
+A browser test or migration must say what CPU, memory, temporary storage and time
+it needs. Those amounts are signed with its script and become the worker's
+requests and limits; the temporary-directory bound stays within ephemeral storage.
+Equal requests/limits avoid a second tuning contract for the initial profile.
+The design left the schema and caps open. This can throttle CPU and cannot promise
+capacity, scheduling or eviction behavior. Fixed helper budgets stay separate.
+Authored GPU requests are rejected until a safely qualified allocation profile
+exists; existing probe and application-chart hardware paths remain distinct.
+Older preview scripts need new declarations, locks, bundles and plans.
