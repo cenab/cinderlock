@@ -16,6 +16,10 @@ from unittest.mock import patch
 MODULE = importlib.util.spec_from_file_location("cinderlock_kind", Path(__file__).with_name("kind.py"))
 KIND = importlib.util.module_from_spec(MODULE)
 MODULE.loader.exec_module(KIND)
+INPUTS_MODULE = importlib.util.spec_from_file_location(
+    "cinderlock_reference_inputs", Path(__file__).with_name("reference_inputs.py"))
+INPUTS = importlib.util.module_from_spec(INPUTS_MODULE)
+INPUTS_MODULE.loader.exec_module(INPUTS)
 FIXTURE_MODULE = importlib.util.spec_from_file_location("document_fixture", KIND.PROJECT / "examples/document-qa/app.py")
 FIXTURE = importlib.util.module_from_spec(FIXTURE_MODULE)
 FIXTURE_MODULE.loader.exec_module(FIXTURE)
@@ -31,12 +35,12 @@ class RegistryPrerequisiteTest(unittest.TestCase):
     def test_every_recipe_has_a_fixed_required_registry_prerequisite(self):
         for version in [1, 2, 3]:
             with self.subTest(version=version):
-                routes = [check for check in KIND.workflow_checks(version, FIXTURE) if check["type"] == "endpoint"]
+                routes = [check for check in INPUTS.workflow_checks(version, FIXTURE) if check["type"] == "endpoint"]
                 self.assertEqual(routes, [dict(id="registry-route", type="endpoint", domain="readiness", required=True,
                     url="http://registry-probe:5000/v2/", method="GET", expectedStatus=200, timeoutSeconds=30)])
 
     def test_registry_observation_requires_exact_running_container_and_kind_address(self):
-        observed = KIND.registry_container_observation(self.observation(), "selected-registry")
+        observed = INPUTS.registry_container_observation(self.observation(), "selected-registry")
         self.assertEqual(observed, dict(name="selected-registry", containerID="a" * 64, network="kind", address="172.18.0.3", port=5000))
         bad = []
         for mutate in [lambda item: item.update(Name="/other-registry"),
@@ -53,12 +57,12 @@ class RegistryPrerequisiteTest(unittest.TestCase):
         for value in bad:
             with self.subTest(value=value):
                 with self.assertRaises(ValueError) as error:
-                    KIND.registry_container_observation(value, "selected-registry")
+                    INPUTS.registry_container_observation(value, "selected-registry")
                 self.assertNotIn("PRIVATE-OBSERVATION-MARKER", str(error.exception))
 
     def test_route_objects_are_namespace_local_and_never_application_owned(self):
-        observed = KIND.registry_container_observation(self.observation(), "selected-registry")
-        route = KIND.registry_route("lab-namespace", observed)
+        observed = INPUTS.registry_container_observation(self.observation(), "selected-registry")
+        route = INPUTS.registry_route("lab-namespace", observed)
         self.assertEqual([item["kind"] for item in route["items"]], ["Service", "EndpointSlice"])
         for item in route["items"]:
             self.assertEqual(item["metadata"]["namespace"], "lab-namespace")
@@ -72,9 +76,9 @@ class RegistryPrerequisiteTest(unittest.TestCase):
 
     def test_probe_admission_keeps_existing_hosts_and_actions(self):
         site, policy = dict(allowedHosts=["other.internal"], allowedActions=["seed"]), dict(allowedActions=["import"])
-        KIND.admit_registry_probe(site, policy)
+        INPUTS.admit_registry_probe(site, policy)
         before = copy.deepcopy((site, policy))
-        KIND.admit_registry_probe(site, policy)
+        INPUTS.admit_registry_probe(site, policy)
         self.assertEqual((site, policy), before)
         self.assertEqual(site["allowedHosts"], ["other.internal", "registry-probe"])
         self.assertIn("seed", site["allowedActions"])
@@ -109,7 +113,7 @@ class RegistryPrerequisiteTest(unittest.TestCase):
             raw = json.dumps(value).encode()
             with patch.object(KIND.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr=b"")):
                 parsed, _ = lab.json_observation(["docker", "inspect"], 1 << 20)
-            self.assertNotIn(private, json.dumps(KIND.registry_container_observation(parsed, "selected-registry")))
+            self.assertNotIn(private, json.dumps(INPUTS.registry_container_observation(parsed, "selected-registry")))
             for raw in [b'{"secret":"' + private.encode(), b'{"x":1,"x":2}', b"x" * 4097]:
                 with patch.object(KIND.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr=b"")):
                     with self.assertRaises(RuntimeError) as error:
@@ -143,7 +147,7 @@ class RegistryPrerequisiteTest(unittest.TestCase):
         container = dict(name="operation", image="127.0.0.1:5006/helper@sha256:" + "c" * 64,
                          command=["/usr/local/bin/cinderlock", "helper", "endpoint-probe"],
                          args=["--url", check["url"], "--method", "GET", "--expected-status", "200", "--timeout-seconds", "30", "--allow-http"])
-        payload = dict(apiVersion=KIND.API, kind="CommandResult", command="cinderlock helper endpoint-probe",
+        payload = dict(apiVersion=INPUTS.API, kind="CommandResult", command="cinderlock helper endpoint-probe",
                        result=dict(status=200, response="observed", authorization="not_supplied"))
         for case in ["original", "oversized-full-output", "replaced-job", "failed-exit", "wrong-command", "missing-binding"]:
             with self.subTest(case=case):
@@ -205,7 +209,7 @@ class NumericWorkflowTest(unittest.TestCase):
     def test_required_numeric_recipe_preserves_persistence_order_and_optional_negative(self):
         for version in [1, 2, 3]:
             with self.subTest(version=version):
-                checks = KIND.workflow_checks(version, FIXTURE)
+                checks = INPUTS.workflow_checks(version, FIXTURE)
                 self.assertEqual(checks[0]["id"], "health" if version == 1 else "persistence")
                 numeric = next(check for check in checks if check["id"] == "numeric-observations")
                 self.assertTrue(numeric["required"])
@@ -273,12 +277,12 @@ class NumericWorkflowTest(unittest.TestCase):
 
 class HelperIdentityTest(unittest.TestCase):
     def test_script_contract_names_actual_fixture_effect_and_rejects_unknown_recipe(self):
-        restore = KIND.Lab.job("restore", "job", ["restore", "--backup", "/data/test.sqlite"])
+        restore = INPUTS.job("restore", "job", ["restore", "--backup", "/data/test.sqlite"])
         self.assertEqual(restore["script"]["successChecks"], ["persistence", "query"])
         self.assertIn("Replace synthetic fixture data", restore["script"]["sideEffects"][0])
         self.assertEqual(restore["command"], ["python", "/app/app.py", "restore", "--backup", "/data/test.sqlite"])
         with self.assertRaises(KeyError):
-            KIND.Lab.job("unknown", "job", ["unclassified-mutation"])
+            INPUTS.job("unknown", "job", ["unclassified-mutation"])
 
     def archive(self, directory, entries, blobs):
         path = Path(directory) / "helper.tar"
@@ -306,7 +310,7 @@ class HelperIdentityTest(unittest.TestCase):
         selected, data = self.descriptor(dict(schemaVersion=2, label="selected"), ref="1")
         with tempfile.TemporaryDirectory() as directory:
             path = self.archive(directory, [old, selected], {old["digest"]: old_data, selected["digest"]: data})
-            self.assertEqual(KIND.helper_manifest_digest(path, "linux/arm64"), selected["digest"])
+            self.assertEqual(INPUTS.helper_manifest_digest(path, "linux/arm64"), selected["digest"])
 
     def test_index_selects_one_matching_platform(self):
         amd, amd_data = self.descriptor(dict(schemaVersion=2, label="amd"), platform=dict(os="linux", architecture="amd64"))
@@ -314,19 +318,19 @@ class HelperIdentityTest(unittest.TestCase):
         index, index_data = self.descriptor(dict(schemaVersion=2, manifests=[amd, arm]), INDEX, ref="1")
         with tempfile.TemporaryDirectory() as directory:
             path = self.archive(directory, [index], {index["digest"]: index_data, amd["digest"]: amd_data, arm["digest"]: arm_data})
-            self.assertEqual(KIND.helper_manifest_digest(path, "linux/arm64"), arm["digest"])
+            self.assertEqual(INPUTS.helper_manifest_digest(path, "linux/arm64"), arm["digest"])
             with self.assertRaises(ValueError):
-                KIND.helper_manifest_digest(path, "linux/s390x")
+                INPUTS.helper_manifest_digest(path, "linux/s390x")
 
     def test_ambiguous_reference_and_tampered_descriptor_fail(self):
         selected, data = self.descriptor(dict(schemaVersion=2), ref="1")
         with tempfile.TemporaryDirectory() as directory:
             path = self.archive(directory, [selected, selected], {selected["digest"]: data})
             with self.assertRaises(ValueError):
-                KIND.helper_manifest_digest(path, "linux/arm64")
+                INPUTS.helper_manifest_digest(path, "linux/arm64")
             path = self.archive(directory, [selected], {selected["digest"]: b'{"schemaVersion":2,"tampered":true}'})
             with self.assertRaises(ValueError):
-                KIND.helper_manifest_digest(path, "linux/arm64")
+                INPUTS.helper_manifest_digest(path, "linux/arm64")
 
 
 if __name__ == "__main__":

@@ -22,10 +22,11 @@ CONTROLLER_NAMESPACE = "cinderlock-argocd-lab"
 PROFILE = "argocd-directory-v1"
 ACTIONS = ["import", "gitops-stage", "gitops-observe", "registry-http"]
 
-_kind_spec = importlib.util.spec_from_file_location("cinderlock_kind_helpers", Path(__file__).with_name("kind.py"))
-_kind = importlib.util.module_from_spec(_kind_spec)
-_kind_spec.loader.exec_module(_kind)
-header, save = _kind.header, _kind.save
+_reference_inputs_spec = importlib.util.spec_from_file_location(
+    "cinderlock_reference_inputs", Path(__file__).with_name("reference_inputs.py"))
+reference_inputs = importlib.util.module_from_spec(_reference_inputs_spec)
+_reference_inputs_spec.loader.exec_module(reference_inputs)
+header, save = reference_inputs.header, reference_inputs.save
 
 
 def sha256(data):
@@ -190,7 +191,7 @@ def selected_manifest_digest(layout, platform, normalized_archive):
                 member.size, member.mode = entry.stat().st_size, 0o600
                 with entry.open("rb") as source:
                     archive.addfile(member, source)
-    return _kind.helper_manifest_digest(normalized_archive, platform)
+    return reference_inputs.helper_manifest_digest(normalized_archive, platform)
 
 
 def source_archive(bare):
