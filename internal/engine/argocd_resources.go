@@ -11,6 +11,7 @@ import (
 	"github.com/cenab/cinderlock/internal/spec"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -229,38 +230,65 @@ func gitOpsProfileShape(u *unstructured.Unstructured) bool {
 	}
 }
 
-func gitOpsProfileSuppliedMatch(desired, live any) bool {
+// Projection preserves supplied structure before typed conversion can erase
+// missing fields or equate null with an empty API object.
+func gitOpsProfileSuppliedLive(desired, live any) (any, bool) {
 	switch d := desired.(type) {
 	case map[string]any:
 		current, ok := live.(map[string]any)
 		if !ok {
-			return false
+			return nil, false
 		}
+		projected := make(map[string]any, len(d))
 		for key, value := range d {
 			actual, exists := current[key]
-			if !exists || !gitOpsProfileSuppliedMatch(value, actual) {
-				return false
+			if !exists {
+				return nil, false
+			}
+			projected[key], ok = gitOpsProfileSuppliedLive(value, actual)
+			if !ok {
+				return nil, false
 			}
 		}
-		return true
+		return projected, true
 	case []any:
 		current, ok := live.([]any)
 		if !ok || len(d) != len(current) {
-			return false
+			return nil, false
 		}
+		projected := make([]any, len(d))
 		for i, value := range d {
-			if !gitOpsProfileSuppliedMatch(value, current[i]) {
-				return false
+			projected[i], ok = gitOpsProfileSuppliedLive(value, current[i])
+			if !ok {
+				return nil, false
 			}
 		}
-		return true
+		return projected, true
 	default:
-		return reflect.DeepEqual(desired, live)
+		if desired == nil || live == nil {
+			return live, desired == nil && live == nil
+		}
+		switch live.(type) {
+		case map[string]any, []any:
+			return nil, false
+		}
+		return live, true
 	}
 }
 
 func gitOpsProfileFieldsMatch(desired, live map[string]any) bool {
-	if !gitOpsProfileSuppliedMatch(desired, live) {
+	projected, ok := gitOpsProfileSuppliedLive(desired, live)
+	if !ok {
+		return false
+	}
+	if desired["kind"] == "Deployment" {
+		var wanted, current appsv1.Deployment
+		if runtime.DefaultUnstructuredConverter.FromUnstructuredWithValidation(desired, &wanted, true) != nil ||
+			runtime.DefaultUnstructuredConverter.FromUnstructuredWithValidation(projected.(map[string]any), &current, true) != nil ||
+			!apiequality.Semantic.DeepEqual(&wanted, &current) {
+			return false
+		}
+	} else if !reflect.DeepEqual(desired, projected) {
 		return false
 	}
 	if desired["kind"] == "ConfigMap" {
@@ -330,6 +358,14 @@ func gitOpsProfileDefault(field, key string, value any, siblings map[string]any)
 		defaults = map[string]any{"imagePullPolicy": "IfNotPresent", "terminationMessagePath": "/dev/termination-log", "terminationMessagePolicy": "File", "resources": map[string]any{}}
 	case "Deployment.spec.template.spec.containers[].ports[]":
 		defaults = map[string]any{"protocol": "TCP"}
+	case "Deployment.spec.template.spec.volumes[].configMap":
+		defaults = map[string]any{"defaultMode": int64(corev1.ConfigMapVolumeSourceDefaultMode)}
+	case "Deployment.spec.template.spec.volumes[].secret":
+		defaults = map[string]any{"defaultMode": int64(corev1.SecretVolumeSourceDefaultMode)}
+	case "Deployment.spec.template.spec.volumes[].downwardAPI":
+		defaults = map[string]any{"defaultMode": int64(corev1.DownwardAPIVolumeSourceDefaultMode)}
+	case "Deployment.spec.template.spec.volumes[].projected":
+		defaults = map[string]any{"defaultMode": int64(corev1.ProjectedVolumeSourceDefaultMode)}
 	case "Service.spec":
 		defaults = map[string]any{"type": "ClusterIP", "sessionAffinity": "None", "internalTrafficPolicy": "Cluster", "ipFamilyPolicy": "SingleStack"}
 		if key == "clusterIP" {
