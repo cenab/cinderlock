@@ -30,8 +30,9 @@ The owned image builder has been removed; archives and exact receipts remain.
 The bounded Argo directory/source/resource observer at `f8bf623` passed against
 the pinned Argo CD v3.6.1 core in `kind-cinderlock-test`, namespace
 `cinderlock-argocd-lab`. Actual Deployment/Service/ConfigMap fields and SSA
-ownership matched; application acceptance remains unestablished. Live denial
-controls are a separate pass. Source and bootstrap identities remain private
+ownership matched; application acceptance remains unestablished. Five source,
+foreign-owner, hook and live-drift controls blocked, followed by a restored
+positive with the original UIDs. Source and bootstrap identities remain private
 under `.local/argocd-profile/`; no GitOps application workflow is qualified yet.
 Finish F39 model/data preparation, independently authorized application checks
 and data recovery using the normal engine, then run the complete release gates

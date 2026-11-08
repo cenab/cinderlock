@@ -74,6 +74,16 @@ authorized application workflows, and recovery are separate unfinished paths.
 This observation does not qualify other Argo versions, Flux, or production use.
 Use the [Argo input guide](argocd-qualification.md) for the preparation boundary.
 
+Five subsequent controls against the same frozen verifier returned exit 10:
+dirty local source, a wrong accepted commit, same-value foreign field ownership,
+a real Argo hook annotation, and changed ConfigMap data. The three live faults
+were tested while the owned controller was paused, preserving the same genuine
+Healthy/Synced Application status. Direct field and ownership checks still
+blocked them. Cleanup restored the controller to one Ready replica and a new
+successful SSA sync; the final observation passed with all three original
+resource UIDs. Private commands, observations and digest inventory remain under
+`.local/argocd-profile/q006-denials/`.
+
 ## Build and protocol checks
 
 Whole-tree unit tests, race tests, vet, and formatting checks passed. PostgreSQL

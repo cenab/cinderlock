@@ -2,7 +2,10 @@
 
 This fixture prepares a disposable Argo directory input set.
 The receipt records
-`applicationAcceptance: not_established` and live qualification as pending.
+`applicationAcceptance: not_established` and live qualification as pending,
+because host preparation does not create workloads. The
+[qualification record](qualification.md) separately names the completed live
+observer and denial controls.
 
 The [preparation harness](../tests/integration/argocd.py) uses the existing
 Cinderlock GitOps commands and the independent
