@@ -143,7 +143,11 @@ Those overrides are read before the directory include filter. Source URLs are
 compared without fetching and appear in the observation only as a digest.
 
 The destination is the controller's in-cluster server and the selected Site
-namespace. The profile supports Deployment, ClusterIP Service, and ConfigMap
+namespace. The Application object must reside in its observed controller's own
+namespace; additional Application namespaces are unsupported. This preserves
+the controller's plain-name tracking identity without aliasing an Application
+of the same name in another namespace. Workloads still use the Site namespace.
+The profile supports Deployment, ClusterIP Service, and ConfigMap
 resources. It reads only the exact names in the reviewed manifest and requires
 the controller's resource and completed-operation inventories to agree. It
 checks supplied fields, known API defaults, Deployment rollout, Argo tracking

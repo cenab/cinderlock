@@ -84,7 +84,7 @@ func gitOpsProfileApplication(u *unstructured.Unstructured, c GitOpsProfileContr
 		return false
 	}
 	status, ok := u.Object["status"].(map[string]any)
-	if !ok || !gitOpsProfileEmptySlice(status["conditions"]) || !gitOpsProfileEmptySlice(status["warnings"]) {
+	if !ok || status["controllerNamespace"] != c.Namespace || !gitOpsProfileEmptySlice(status["conditions"]) || !gitOpsProfileEmptySlice(status["warnings"]) {
 		return false
 	}
 	if hydration := status["sourceHydrator"]; hydration != nil {

@@ -272,6 +272,12 @@ competing field claims block. The design left the first controller profile open.
 This permits a useful first adapter without claiming that every Argo application
 is supported or that current ownership excludes future writers.
 
+Applications must reside in the controller's own observed namespace. For
+example, Argo tracks `team/payments` differently from `argocd/payments`; treating
+both as plain `payments` could associate the wrong application's resources.
+The first profile rejects that additional-namespace mode instead of guessing
+its tracking identity. Workloads may still use a separate Site namespace.
+
 ### Use Kubernetes field semantics for current ownership
 
 **Verdict:** sound · **Confidence:** medium. **When:** controller observation.
