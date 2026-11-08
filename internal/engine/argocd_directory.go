@@ -242,7 +242,8 @@ func gitOpsProfileResources(application *unstructured.Unstructured, desired []*u
 				if r["syncPhase"] != "Sync" {
 					return false
 				}
-				if phase, exists := r["hookPhase"]; exists && phase != "Succeeded" && phase != "" {
+				// Ordinary Synced applies retain Running in Argo's result; hooks were rejected above.
+				if phase, exists := r["hookPhase"]; exists && phase != "Succeeded" && phase != "Running" && phase != "" {
 					return false
 				}
 				fact.OperationStatus = "Synced"

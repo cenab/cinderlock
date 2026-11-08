@@ -302,6 +302,12 @@ When Argo stores child health in its separate application tree, the observer
 retains absent inline child health and combines aggregate application health
 with the actual Deployment rollout. It does not infer a tree read or synthesize
 child health; unknown or contradictory representations remain blocked.
+Similarly, a normal successful apply can retain `Running` in the resource
+record's misleadingly named `hookPhase`. The observer distinguishes that known
+representation from an actual hook using its type, completed overall operation,
+reviewed metadata, and live resource checks. A running operation or real hook
+still blocks; changing that rule back would reject ordinary pinned-controller
+results without adding safety.
 
 ### Separate the vendor's proposal base from the customer's accepted commit
 

@@ -165,6 +165,12 @@ separate application tree. Inline health, when supplied, must still be healthy.
 Unknown health formats block. The [pinned controller's health handling](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/controller/health.go)
 defines that distinction.
 
+An ordinary resource's apply result can retain `hookPhase: Running` after a
+completed sync. That field alone isn't a hook: the profile still rejects hook
+types, requires the overall operation to have succeeded, and reads actual live
+resource readiness. Argo's [result-code mapping](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/gitops-engine/pkg/sync/sync_context.go)
+defines this representation.
+
 The pinned Helm tool reads the selected release's history before and after
 observation. Active or uncertain history blocks this profile. Rendering uses a
 frozen install context through the shared renderer and never reads active Helm

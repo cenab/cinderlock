@@ -712,6 +712,7 @@ func TestObserveGitOpsProfileInventoryDenials(t *testing.T) {
 		t.Run("unresolved-hook-phase/"+phase, func(t *testing.T) {
 			f := newProfileFixture(t)
 			results, _, _ := unstructured.NestedSlice(f.application.Object, "status", "operationState", "syncResult", "resources")
+			results[0].(map[string]any)["hookType"] = "Sync"
 			results[0].(map[string]any)["hookPhase"] = phase
 			profileSet(t, f.application, results, "status", "operationState", "syncResult", "resources")
 			f.seed(t)
