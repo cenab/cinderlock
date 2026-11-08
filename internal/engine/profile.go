@@ -142,6 +142,9 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 		}
 	}
 	for _, c := range p.Checks {
+		if c.ObservationContract != nil && c.ObservationContract.Profile != e.Site.Spec.Profile {
+			block("OBSERVATION_PROFILE_MISMATCH", "application observation contract differs from selected site profile: "+c.ID)
+		}
 		ref := c.Image
 		if ref == "" {
 			ref = e.Site.Spec.HelperImage

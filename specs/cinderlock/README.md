@@ -18,11 +18,13 @@ policy updates, server admission dry-runs, and the patched Helm toolchain.
 See the [qualification record](../../docs/qualification.md) for the evidence
 boundary. Local receipts remain private under `.local/qualification-004/`.
 
-Whole-tree checks, race tests, source scanning, and full source/toolchain offline
-compilation pass. Complete publication and hosted CI, then continue the remaining
-contract, inspection, integration, and policy work. Keep new slices separate from
-the recorded baseline. Experimental journals without original worker/volume
-identities cannot serve as resume or recovery evidence.
+Published core at `7d81f2e` passed hosted Go and real Kubernetes install, upgrade,
+failure and recovery CI. Numeric observation contracts and reports are the next
+local pass. Integrate the completed contract, inventory, policy and GitOps
+worktree commits, then requalify the combined tree. Endpoint preflight remains
+in progress; authored worker resource budgets and controller qualification follow.
+Keep new slices separate from the recorded baseline. Experimental journals
+without original worker/volume identities cannot serve as resume evidence.
 
 The user will supply NVIDIA test hardware later. Keep GPU qualification open;
 continue all CPU, artifact, permission, security, catalog, and distribution work.
@@ -48,7 +50,7 @@ the remaining unchecked work is a release gate, not permission to stop.
 | 05: reference transition | `examples/document-qa`; synthetic HTTP/SQLite ingestion, persistence, migration and restore | App/chart tests and real kind transition pass |
 | 06: local evidence/catalog | `internal/report`, `internal/support`, `internal/catalog`; scoped evidence and organization service | SQLite/PostgreSQL, OIDC, scope, CLI/API, and visual checks pass; remaining policy/integration scope is explicit |
 | 07: extensions | CLI/API seams for GPU probes, GitOps, retirement, groups, source admission and CI | Implemented subsets have tests; remaining mechanisms and profile qualification stay open |
-| 08: release quality | Docs, notices, shape, offline build, scanning, distribution and whole-tree checks | Local gates pass; publication and hosted CI remain |
+| 08: release quality | Docs, notices, shape, offline build, scanning, distribution and whole-tree checks | Published core and hosted CI pass; combined new feature qualification remains |
 
 Follow dependency order: 01 → 02 → 03 → 04 → 05; 06 can progress independently
 after 01. Complete 07 against the established seams, then 08 against the complete

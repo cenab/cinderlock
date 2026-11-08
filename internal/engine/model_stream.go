@@ -15,7 +15,6 @@ import (
 	"github.com/cenab/cinderlock/internal/modelstage"
 	"github.com/cenab/cinderlock/internal/spec"
 	"github.com/cenab/cinderlock/internal/state"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -194,7 +193,7 @@ func (e *Engine) waitModelReceiver(ctx context.Context, w state.Worker) (*corev1
 		}
 		if len(controlled) == 1 {
 			pod := &controlled[0]
-			recipe, err := modelPodRecipe(job, pod, w)
+			recipe, err := workerPodRecipe(job, pod, w)
 			if err != nil {
 				return nil, "", err
 			}
@@ -213,35 +212,6 @@ func (e *Engine) waitModelReceiver(ctx context.Context, w state.Worker) (*corev1
 	}
 }
 
-func modelPodRecipe(job *batchv1.Job, pod *corev1.Pod, w state.Worker) (string, error) {
-	owner := metav1.GetControllerOf(pod)
-	if string(job.UID) != w.UID || pod.UID == "" || pod.DeletionTimestamp != nil || owner == nil || owner.Kind != "Job" || owner.APIVersion != "batch/v1" || owner.UID != job.UID || owner.Name != job.Name || pod.Labels["cinderlock.dev/run"] != w.RunID || pod.Labels["cinderlock.dev/step"] != fingerprint(w.Role)[7:23] {
-		return "", spec.Err(13, "native receiver Pod is not the original controlled worker")
-	}
-	actual := job.DeepCopy()
-	actual.Spec.Template.Spec = *pod.Spec.DeepCopy()
-	if job.Spec.Template.Spec.NodeName == "" {
-		actual.Spec.Template.Spec.NodeName = ""
-	}
-	tolerations := []corev1.Toleration{}
-	for _, value := range actual.Spec.Template.Spec.Tolerations {
-		if (value.Key == "node.kubernetes.io/not-ready" || value.Key == "node.kubernetes.io/unreachable") && value.Operator == corev1.TolerationOpExists && value.Effect == corev1.TaintEffectNoExecute && value.Value == "" && value.TolerationSeconds != nil && *value.TolerationSeconds == 300 {
-			continue
-		}
-		tolerations = append(tolerations, value)
-	}
-	if len(tolerations) == 0 {
-		actual.Spec.Template.Spec.Tolerations = nil
-	} else {
-		actual.Spec.Template.Spec.Tolerations = tolerations
-	}
-	digest, err := jobRecipe(actual)
-	if err != nil || digest != w.RecipeDigest {
-		return "", spec.Err(13, "native receiver Pod differs from its admitted Job recipe")
-	}
-	return digest, nil
-}
-
 func (e *Engine) readModelReceiver(ctx context.Context, r state.ModelReceiver) (*corev1.Pod, error) {
 	if _, err := e.inspectWorker(ctx, r.Worker); err != nil {
 		return nil, err
@@ -254,7 +224,7 @@ func (e *Engine) readModelReceiver(ctx context.Context, r state.ModelReceiver) (
 	if err != nil {
 		return nil, spec.Err(13, "recorded native receiver Pod cannot be observed")
 	}
-	digest, err := modelPodRecipe(job, pod, r.Worker)
+	digest, err := workerPodRecipe(job, pod, r.Worker)
 	if err != nil || string(pod.UID) != r.PodUID || digest != r.RecipeDigest {
 		return nil, spec.Err(13, "native receiver Pod UID or recipe changed after attachment admission")
 	}

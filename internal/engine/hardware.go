@@ -268,8 +268,9 @@ func (e *Engine) podLogs(ctx context.Context, name string) ([]byte, error) {
 	if e.PodLogReader != nil {
 		return e.PodLogReader(ctx, name)
 	}
-	limit := int64(64 << 10)
-	reader, err := e.Kube.Client.CoreV1().Pods(e.Site.Spec.Namespace).GetLogs(name, &corev1.PodLogOptions{Container: "operation", LimitBytes: &limit}).Stream(ctx)
+	limit := int64(spec.MaxObservationBytes)
+	// Bound the stream locally; server-side truncation could hide extra output.
+	reader, err := e.Kube.Client.CoreV1().Pods(e.Site.Spec.Namespace).GetLogs(name, &corev1.PodLogOptions{Container: "operation"}).Stream(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +280,7 @@ func (e *Engine) podLogs(ctx context.Context, name string) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(b)) > limit {
-		return nil, errors.New("probe logs exceed limit")
+		return b, errors.New("Job logs exceed limit")
 	}
 	return b, nil
 }

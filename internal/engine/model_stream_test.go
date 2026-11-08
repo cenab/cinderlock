@@ -277,7 +277,7 @@ func TestNativeModelPodRecipeRejectsAdmissionMutations(t *testing.T) {
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", UID: "pod-uid", Labels: job.Spec.Template.Labels, OwnerReferences: []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID, Controller: &yes}}}, Spec: *job.Spec.Template.Spec.DeepCopy()}
 	pod.Spec.NodeName = "scheduled-node"
 	pod.Spec.Tolerations = []corev1.Toleration{{Key: "node.kubernetes.io/not-ready", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: &seconds}}
-	if _, err = modelPodRecipe(job, pod, w); err != nil {
+	if _, err = workerPodRecipe(job, pod, w); err != nil {
 		t.Fatalf("ordinary scheduling defaults rejected: %v", err)
 	}
 	for _, mutation := range []string{"owner", "image", "command", "privileged", "extra-container"} {
@@ -295,7 +295,7 @@ func TestNativeModelPodRecipeRejectsAdmissionMutations(t *testing.T) {
 			case "extra-container":
 				changed.Spec.Containers = append(changed.Spec.Containers, corev1.Container{Name: "sidecar", Image: "other"})
 			}
-			if _, err := modelPodRecipe(job, changed, w); spec.ExitCode(err) != 13 {
+			if _, err := workerPodRecipe(job, changed, w); spec.ExitCode(err) != 13 {
 				t.Fatalf("mutated receiver admitted: %v", err)
 			}
 		})

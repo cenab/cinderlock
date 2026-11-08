@@ -333,7 +333,7 @@ func (e *Engine) fixturePodExclusivity(ctx context.Context, runID, pvc string) e
 		if err != nil {
 			return spec.Err(13, "fixture consumer Job cannot be observed")
 		}
-		if _, err := modelPodRecipe(job, &pod, *matched); err != nil {
+		if _, err := workerPodRecipe(job, &pod, *matched); err != nil {
 			return err
 		}
 		readOnly := len(pod.Spec.InitContainers) == 0 && len(pod.Spec.EphemeralContainers) == 0

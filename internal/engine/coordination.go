@@ -125,6 +125,39 @@ func (e *Engine) clusterRecord(ctx context.Context, runID, planDigest, status st
 	if err != nil {
 		return err
 	}
+	if result, ok := operation.(spec.RunResult); ok {
+		summary := struct {
+			Kind          string            `json:"kind"`
+			Version       int               `json:"version"`
+			State         string            `json:"state"`
+			Acceptance    string            `json:"acceptance"`
+			Domains       map[string]string `json:"domains"`
+			ResultDigest  string            `json:"resultDigest"`
+			ResultBytes   int               `json:"resultBytes"`
+			Evidence      string            `json:"evidence"`
+			CheckCount    int               `json:"checkCount"`
+			PassedChecks  int               `json:"passedChecks"`
+			FailedChecks  int               `json:"failedChecks"`
+			BlockedChecks int               `json:"blockedChecks"`
+			OtherChecks   int               `json:"otherChecks"`
+		}{Kind: "RunJournalSummary", Version: 1, State: result.State, Acceptance: result.Acceptance, Domains: result.Domains, ResultDigest: spec.Hash(b), ResultBytes: len(b), Evidence: "operator-journal", CheckCount: len(result.Checks)}
+		for _, check := range result.Checks {
+			switch check.Status {
+			case "pass":
+				summary.PassedChecks++
+			case "fail":
+				summary.FailedChecks++
+			case "blocked":
+				summary.BlockedChecks++
+			default:
+				summary.OtherChecks++
+			}
+		}
+		b, err = json.Marshal(summary)
+		if err != nil {
+			return err
+		}
+	}
 	if len(b) > 256<<10 {
 		return errors.New("cluster intent exceeds bounded journal size")
 	}

@@ -118,6 +118,10 @@ func (e *Engine) permissionRequirements(p spec.Plan, objects, previous []map[str
 	add("coordination.k8s.io", "leases", lease, "get", "create", "update", "delete")
 	add("", "configmaps", "", "get", "list", "create", "update")
 	jobs, restart, helm, uninstall, probe := len(p.Checks) > 0, false, false, false, false
+	observations := false
+	for _, check := range p.Checks {
+		observations = observations || check.ObservationContract != nil
+	}
 	for _, op := range p.Operations {
 		switch op.Type {
 		case "job", "migrate", "backup", "reindex":
@@ -167,11 +171,13 @@ func (e *Engine) permissionRequirements(p spec.Plan, objects, previous []map[str
 	if jobs {
 		add("batch", "jobs", "", "get", "create")
 	}
-	if restart || probe {
+	if restart || probe || observations {
 		add("", "pods", "", "list")
 	}
 	if probe {
 		add("", "pods", "", "get")
+	}
+	if probe || observations {
 		a := authorizationv1.ResourceAttributes{Namespace: namespace, Resource: "pods", Subresource: "log", Verb: "get"}
 		required[permissionLabel(a)] = a
 	}

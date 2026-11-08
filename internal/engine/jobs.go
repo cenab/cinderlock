@@ -265,6 +265,16 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	if result.Domain == "" {
 		result.Domain = "workflow"
 	}
+	if c.ObservationContract != nil {
+		if err := spec.ValidateCheck(c); err != nil {
+			result.Reason = err.Error()
+			return result
+		}
+		if c.ObservationContract.Profile != e.Site.Spec.Profile {
+			result.Reason = "observation contract profile differs from selected site profile"
+			return result
+		}
+	}
 	var fixturePlan spec.Plan
 	var fixtures []fixtureBinding
 	if len(c.Fixtures) > 0 {
@@ -345,6 +355,9 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 				return result
 			}
 		}
+		if c.ObservationContract != nil && (intent.State == "complete" || intent.State == "failed") {
+			return e.recordedObservationCheck(ctx, intent, c, result)
+		}
 		worker, err := e.operationWorker(ctx, runID, stepID, intent.Attempt, stepID)
 		if err != nil {
 			result.Reason = err.Error()
@@ -397,33 +410,10 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	}
 	result.DurationMillis = time.Since(start).Milliseconds()
 	result.Evidence = "job/" + external
-	outcome := "complete"
-	if err != nil {
-		result.Reason = err.Error()
-		outcome = "uncertain"
-		if spec.ExitCode(err) == 14 {
-			result.Status = "fail"
-			outcome = "failed"
-		}
-	} else {
-		result.Status = "pass"
+	if err == nil && c.ObservationContract != nil {
+		result, err = e.completedCheckObservations(ctx, intent, c, result)
 	}
-	persist, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	var evidence any = result
-	if len(fixtures) > 0 && !applicationAttempted && outcome == "failed" {
-		evidence = checkOutcome{CheckResult: result, AcceptanceWorker: "not_started"}
-	}
-	if err := e.Store.Complete(persist, intent, outcome, evidence); err != nil {
-		result.Status = "blocked"
-		result.Reason = "acceptance worker outcome could not be durably recorded"
-		return result
-	}
-	if err := e.clusterRecord(persist, runID, run.PlanDigest, outcome, evidence); err != nil {
-		result.Status = "blocked"
-		result.Reason = "acceptance outcome cluster record could not be confirmed"
-	}
-	return result
+	return e.recordCheckResult(intent, result, err, len(fixtures) > 0 && !applicationAttempted)
 }
 
 func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v *bundle.Verified) (string, error) {

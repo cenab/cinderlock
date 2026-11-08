@@ -142,6 +142,8 @@ type Check struct {
 	Fixtures         []string `json:"fixtures,omitempty" yaml:"fixtures,omitempty"`
 	SecretRefs       []string `json:"secretRefs,omitempty" yaml:"secretRefs,omitempty"`
 	SyntheticData    string   `json:"syntheticData,omitempty" yaml:"syntheticData,omitempty"`
+
+	ObservationContract *ObservationContract `json:"observationContract,omitempty" yaml:"observationContract,omitempty"`
 }
 type Recovery struct {
 	ID             string      `json:"id" yaml:"id"`
@@ -362,6 +364,8 @@ type CheckResult struct {
 	Reason         string `json:"reason,omitempty"`
 	Evidence       string `json:"evidence,omitempty"`
 	DurationMillis int64  `json:"durationMillis,omitempty"`
+
+	Observations *CheckObservations `json:"observations,omitempty"`
 }
 type RunResult struct {
 	Header           `yaml:",inline"`

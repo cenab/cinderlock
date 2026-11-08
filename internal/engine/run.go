@@ -198,6 +198,30 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	if err != nil {
 		return fail(err)
 	}
+	for _, check := range p.Checks {
+		if check.ObservationContract == nil {
+			continue
+		}
+		check.Required = check.Required || slices.Contains(p.RequiredChecks, check.ID)
+		for _, record := range ops {
+			if record.StepID != checkStepID(check.ID) || (record.State != "complete" && record.State != "failed") {
+				continue
+			}
+			if err := checkIntentMatches(record.Intent, check); err != nil {
+				return fail(err)
+			}
+			r := e.recordedObservationCheck(ctx, record, check, spec.CheckResult{ID: check.ID, Domain: check.Domain, Required: check.Required, Status: "blocked"})
+			index := slices.IndexFunc(result.Checks, func(r spec.CheckResult) bool { return r.ID == check.ID })
+			if index < 0 {
+				result.Checks = append(result.Checks, r)
+			} else {
+				result.Checks[index] = r
+			}
+			if r.Required && r.Status != "pass" && result.Domains["workflow"] != "fail" {
+				result.Domains["workflow"] = r.Status
+			}
+		}
+	}
 	completed := map[string]bool{}
 	for _, record := range ops {
 		if record.State == "complete" {

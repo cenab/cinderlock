@@ -101,3 +101,32 @@ func (e *Engine) operationWorker(ctx context.Context, runID, stepID string, atte
 	}
 	return worker, nil
 }
+
+func workerPodRecipe(job *batchv1.Job, pod *corev1.Pod, w state.Worker) (string, error) {
+	owner := metav1.GetControllerOf(pod)
+	if string(job.UID) != w.UID || pod.UID == "" || pod.DeletionTimestamp != nil || owner == nil || owner.Kind != "Job" || owner.APIVersion != "batch/v1" || owner.UID != job.UID || owner.Name != job.Name || pod.Labels["cinderlock.dev/run"] != w.RunID || pod.Labels["cinderlock.dev/step"] != fingerprint(w.Role)[7:23] {
+		return "", spec.Err(13, "Pod is not the original controlled worker")
+	}
+	actual := job.DeepCopy()
+	actual.Spec.Template.Spec = *pod.Spec.DeepCopy()
+	if job.Spec.Template.Spec.NodeName == "" {
+		actual.Spec.Template.Spec.NodeName = ""
+	}
+	tolerations := []corev1.Toleration{}
+	for _, value := range actual.Spec.Template.Spec.Tolerations {
+		if (value.Key == "node.kubernetes.io/not-ready" || value.Key == "node.kubernetes.io/unreachable") && value.Operator == corev1.TolerationOpExists && value.Effect == corev1.TaintEffectNoExecute && value.Value == "" && value.TolerationSeconds != nil && *value.TolerationSeconds == 300 {
+			continue
+		}
+		tolerations = append(tolerations, value)
+	}
+	if len(tolerations) == 0 {
+		actual.Spec.Template.Spec.Tolerations = nil
+	} else {
+		actual.Spec.Template.Spec.Tolerations = tolerations
+	}
+	digest, err := jobRecipe(actual)
+	if err != nil || digest != w.RecipeDigest {
+		return "", spec.Err(13, "Pod differs from its admitted Job recipe")
+	}
+	return digest, nil
+}

@@ -68,3 +68,42 @@ hashes, and declared licenses. It explicitly records incomplete package
 composition and scanners not run. Otherwise a release could look scanned
 merely because an inventory file exists. External scanner/evaluation results
 remain evidence with their own producer, object identity, date, and coverage.
+
+## Numeric observation pass
+
+### The application measures; Cinderlock checks the declared bounds
+
+**Verdict:** sound · **Confidence:** medium. **When:** numeric observation pass.
+
+When an inference test reports latency or allocation, Cinderlock retains its
+test revision, conditions, limitations and every numeric sample. Each sample
+must meet the vendor's signed bounds; the engine does not turn a small test into
+a general quality score. The design required application assertions but left
+their transport and assessment open. Application-owned measurements avoid a
+new runtime-specific collector, at the cost of trusting the test's measurement
+method. Independent GPU instrumentation needs a separately qualified adapter.
+
+### A completed test emits one bounded numeric document
+
+**Verdict:** sound · **Confidence:** high. **When:** numeric observation pass.
+
+If a test prints a banner and then apparently passing numbers, the whole capture
+is blocked. The accepted profile requires one strict JSON document with fixed
+integer units and no extra log text. The original Job and Pod identities are
+bound before collection, so a replacement worker cannot supply new passing
+evidence on resume. The design did not select an output format. This keeps raw
+answers and diagnostics out of numeric reports; verbose test runners must use a
+wrapper that emits only the declared document.
+
+### Full samples live locally; cluster records identify the local result
+
+**Verdict:** sound · **Confidence:** high. **When:** numeric observation pass.
+
+When many valid tests finish, copying all samples into a Kubernetes metadata
+object can exceed its size limit and prevent finalization. The cluster record
+therefore stores status, counts, and the exact digest and byte length of the
+complete local result. Release validation bounds the aggregate numeric evidence
+while reserving room for other run data. The design left this storage boundary
+open. Samples are not truncated, but a cluster record cannot reconstruct a lost
+operator journal. An oversized unrelated result must preserve the previous
+readable journal state rather than silently expanding the supported reader.

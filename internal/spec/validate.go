@@ -101,6 +101,9 @@ func ValidateRelease(r Release) error {
 			}
 		}
 	}
+	if err := validateObservationBudget(r.Spec.Checks); err != nil {
+		return err
+	}
 	if len(r.Spec.RequiredChecks) == 0 {
 		return Err(2, "at least one required workflow is mandatory")
 	}
@@ -133,6 +136,9 @@ func ValidateRelease(r Release) error {
 			if e := ValidateCheck(c); e != nil {
 				return e
 			}
+		}
+		if err := validateObservationBudget(rec.Checks); err != nil {
+			return err
 		}
 	}
 	if len(r.Spec.Transitions) == 0 {
@@ -215,6 +221,12 @@ func ValidateCheck(c Check) error {
 		}
 	default:
 		return Err(2, "unsupported check type %q", c.Type)
+	}
+	if c.ObservationContract != nil {
+		if c.Type != "job" || c.ExpectedExitCode != 0 || c.TimeoutSeconds < 0 || c.TimeoutSeconds > 86400 {
+			return Err(2, "observations require a successful Job check with a bounded timeout")
+		}
+		return ValidateObservationContract(*c.ObservationContract)
 	}
 	return nil
 }
