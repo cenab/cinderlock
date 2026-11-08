@@ -1,0 +1,11 @@
+.git
+.local
+.cinderlock
+dist
+vendor
+**/*.key
+**/*.pem
+**/*.token
+**/*.db
+**/*.sqlite
+**/*.cinder

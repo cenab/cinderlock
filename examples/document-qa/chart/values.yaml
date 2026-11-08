@@ -1,0 +1,10 @@
+image: cinderlock/document-qa:local
+imagePullPolicy: IfNotPresent
+appVersion: "1.0.0"
+schemaTarget: 1
+data:
+  existingClaim: ""
+  capacity: 128Mi
+  storageClass: ""
+models:
+  existingClaim: ""

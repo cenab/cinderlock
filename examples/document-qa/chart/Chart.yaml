@@ -1,0 +1,6 @@
+apiVersion: v2
+name: document-qa
+description: Synthetic lexical document-QA delivery fixture; not an LLM/GPU workload
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

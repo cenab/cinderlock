@@ -1,0 +1,20 @@
+{{- if not .Values.data.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-data
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    app.kubernetes.io/name: document-qa
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.data.capacity }}
+  {{- if .Values.data.storageClass }}
+  storageClassName: {{ .Values.data.storageClass | quote }}
+  {{- end }}
+{{- end }}

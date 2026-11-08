@@ -1,0 +1,161 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac
+        env:
+          POSTGRES_DB: cinderlock
+          POSTGRES_USER: cinderlock
+          POSTGRES_PASSWORD: cinderlock-ci-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cinderlock"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CINDERLOCK_TEST_POSTGRES_DSN: postgres://cinderlock:cinderlock-ci-test-only@127.0.0.1:5432/cinderlock?sslmode=disable
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/helm/go.sum
+      - run: go mod verify
+      - run: make check
+      - run: make race
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: python3 -m unittest discover -s examples/document-qa -p test_app.py
+      - run: python3 -m unittest discover -s tools/helm -p test_prepare.py
+      - run: python3 -m unittest discover -s tests/integration -p 'test_*.py'
+      - name: Prepare patched pinned Helm
+        run: |
+          tools/helm/prepare.sh --go "$(go env GOROOT)/bin/go" \
+            --out "$RUNNER_TEMP/cinderlock-tools/bin/helm" \
+            --notices "$RUNNER_TEMP/cinderlock-tools/helm-notices"
+          echo "$RUNNER_TEMP/cinderlock-tools/bin" >> "$GITHUB_PATH"
+      - run: helm lint examples/document-qa/chart
+      - name: Build portable executables
+        run: |
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "dist/cinderlock-linux-$arch" ./cmd/cinderlock
+          done
+      - name: Verify offline source distribution and retain licenses
+        run: |
+          dist/cinderlock-linux-amd64 source export . \
+            --go "$(go env GOROOT)/bin/go" --include-toolchain "$(go env GOROOT)" \
+            --helm "$RUNNER_TEMP/cinderlock-tools/bin/helm" \
+            --helm-notices "$RUNNER_TEMP/cinderlock-tools/helm-notices" \
+            --out "$RUNNER_TEMP/cinderlock-source"
+          dist/cinderlock-linux-amd64 source build "$RUNNER_TEMP/cinderlock-source" \
+            --out "$RUNNER_TEMP/cinderlock-offline"
+          cp LICENSE README.md dist/
+          tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -czf dist/source-and-toolchain.tar.gz -C "$RUNNER_TEMP" cinderlock-source
+          (cd dist && sha256sum cinderlock-linux-amd64 cinderlock-linux-arm64 source-and-toolchain.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cinderlock-linux
+          path: dist/
+          retention-days: 7
+
+  kubernetes:
+    needs: go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CINDERLOCK_LAB_NAME: cinderlock-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: cinderlock-linux
+          path: artifacts
+      - name: Prepare disposable lab tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          GOBIN="$RUNNER_TEMP/bin" go install sigs.k8s.io/kind@v0.33.0
+          curl --fail --silent --show-error --location --proto '=https' \
+            https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl -o "$RUNNER_TEMP/bin/kubectl"
+          curl --fail --silent --show-error --location --proto '=https' \
+            https://dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl.sha256 -o "$RUNNER_TEMP/kubectl.sha256"
+          printf '%s  %s\n' "$(cat "$RUNNER_TEMP/kubectl.sha256")" "$RUNNER_TEMP/bin/kubectl" | sha256sum --check
+          chmod 700 "$RUNNER_TEMP/bin/kubectl" artifacts/cinderlock-linux-amd64
+          tar -xzf artifacts/source-and-toolchain.tar.gz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/cinderlock-source/tools" >> "$GITHUB_PATH"
+      - name: Create isolated test cluster and registry route
+        run: |
+          kind create cluster --name "$CINDERLOCK_LAB_NAME" \
+            --image kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5 \
+            --kubeconfig "$RUNNER_TEMP/kubeconfig" --wait 120s
+          touch "$RUNNER_TEMP/cinderlock-cluster-created"
+          docker run -d --name "$CINDERLOCK_LAB_NAME-registry" --network kind \
+            --publish 127.0.0.1:5006:5000 \
+            registry:3@sha256:38907510915c3f1604c7e83d6ab602ab3020d092f73bdaed8696773693ff768c
+          touch "$RUNNER_TEMP/cinderlock-registry-created"
+          printf '[host."http://%s-registry:5000"]\n  capabilities = ["pull", "resolve"]\n' \
+            "$CINDERLOCK_LAB_NAME" > "$RUNNER_TEMP/hosts.toml"
+          for node in $(kind get nodes --name "$CINDERLOCK_LAB_NAME"); do
+            docker exec "$node" mkdir -p /etc/containerd/certs.d/127.0.0.1:5006
+            docker cp "$RUNNER_TEMP/hosts.toml" "$node:/etc/containerd/certs.d/127.0.0.1:5006/hosts.toml"
+          done
+      - name: Prepare locked application and helper images
+        run: |
+          docker buildx build --platform linux/amd64 --provenance=false \
+            --output "type=oci,dest=$RUNNER_TEMP/application.oci.tar" \
+            --tag cinderlock/application:1 examples/document-qa
+          mkdir -p "$RUNNER_TEMP/helper"
+          cp artifacts/cinderlock-linux-amd64 "$RUNNER_TEMP/helper/cinderlock"
+          printf 'FROM scratch\nCOPY --chmod=0555 cinderlock /usr/local/bin/cinderlock\nUSER 10001:10001\nENTRYPOINT ["/usr/local/bin/cinderlock"]\n' \
+            > "$RUNNER_TEMP/helper/Dockerfile"
+          docker buildx build --platform linux/amd64 --provenance=false \
+            --output "type=oci,dest=$RUNNER_TEMP/helper.oci.tar" \
+            --tag cinderlock/helper:1 "$RUNNER_TEMP/helper"
+      - name: Verify real install, upgrade, failed acceptance and recovery
+        run: |
+          python3 tests/integration/kind.py --binary artifacts/cinderlock-linux-amd64 \
+            --kubeconfig "$RUNNER_TEMP/kubeconfig" --context "kind-$CINDERLOCK_LAB_NAME" \
+            --registry 127.0.0.1:5006 --workdir "$RUNNER_TEMP/integration" \
+            --application-oci "$RUNNER_TEMP/application.oci.tar" \
+            --helper-oci "$RUNNER_TEMP/helper.oci.tar" --platform linux/amd64
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: kubernetes-results
+          path: |
+            ${{ runner.temp }}/integration/*-result.json
+            ${{ runner.temp }}/integration/summary.json
+            ${{ runner.temp }}/integration/recovery.html
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove only this job's disposable resources
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/cinderlock-cluster-created"; then
+            kind delete cluster --name "$CINDERLOCK_LAB_NAME" --kubeconfig "$RUNNER_TEMP/kubeconfig"
+          fi
+          if test -f "$RUNNER_TEMP/cinderlock-registry-created"; then
+            docker rm -f "$CINDERLOCK_LAB_NAME-registry"
+          fi

@@ -1,0 +1,25 @@
+name: cinderlock-catalog
+services:
+  postgres:
+    image: postgres:17-alpine
+    pull_policy: never
+    environment:
+      POSTGRES_USER: cinderlock
+      POSTGRES_DB: cinderlock
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres-password
+    ports:
+      - "127.0.0.1:${CINDERLOCK_POSTGRES_PORT:-55432}:5432"
+    secrets:
+      - postgres-password
+    volumes:
+      - catalog-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinderlock -d cinderlock"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+secrets:
+  postgres-password:
+    file: ${CINDERLOCK_POSTGRES_PASSWORD_FILE:?Set a private password-file path}
+volumes:
+  catalog-data:

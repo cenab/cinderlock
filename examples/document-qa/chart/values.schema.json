@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image", "imagePullPolicy", "appVersion", "schemaTarget", "data", "models"],
+  "properties": {
+    "image": {"type": "string", "minLength": 1},
+    "imagePullPolicy": {"enum": ["IfNotPresent", "Always", "Never"]},
+    "appVersion": {"type": "string", "minLength": 1},
+    "schemaTarget": {"type": "integer", "enum": [1, 2]},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existingClaim", "capacity", "storageClass"],
+      "properties": {
+        "existingClaim": {"type": "string"},
+        "capacity": {"type": "string", "minLength": 1},
+        "storageClass": {"type": "string"}
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existingClaim"],
+      "properties": {"existingClaim": {"type": "string"}}
+    }
+  }
+}
