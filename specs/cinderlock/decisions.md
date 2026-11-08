@@ -257,3 +257,91 @@ capacity, scheduling or eviction behavior. Fixed helper budgets stay separate.
 Authored GPU requests are rejected until a safely qualified allocation profile
 exists; existing probe and application-chart hardware paths remain distinct.
 Older preview scripts need new declarations, locks, bundles and plans.
+
+## Exact Argo CD observations
+
+### Start with a plain directory and a bounded resource graph
+
+**Verdict:** sound · **Confidence:** medium. **When:** controller observation.
+
+When a customer selects one reviewed YAML file, the observer compares its
+Deployment, Service, and ConfigMap objects with the actual cluster objects.
+Other generators, hooks, and object kinds block this profile. A Helm chart label
+alone is formatting metadata; active Helm history, ownership annotations, or
+competing field claims block. The design left the first controller profile open.
+This permits a useful first adapter without claiming that every Argo application
+is supported or that current ownership excludes future writers.
+
+### Use Kubernetes field semantics for current ownership
+
+**Verdict:** sound · **Confidence:** medium. **When:** controller observation.
+
+A field manager can own a map without owning its individual keys. The observer
+uses the already pinned Kubernetes schema and field-set APIs to require exact
+reviewed leaf ownership, including defaulted list keys. Unknown field encodings
+and overlapping foreign claims block. The design required competing writers to
+block but did not specify the comparison algorithm. This avoids a second parser
+and preserves normal API defaults without treating a parent claim as proof of
+child ownership. The existing dependency becomes direct; its version is unchanged.
+
+### Separate the vendor's proposal base from the customer's accepted commit
+
+**Verdict:** sound · **Confidence:** high. **When:** controller observation.
+
+A customer applies a proposed change and creates a new commit. The signed bundle
+continues to name the original proposal base; a separately selected full accepted
+commit binds the observation. The exact signed file and reviewed render still
+must match. Requiring that new commit inside the original bundle would force
+another bundle and another source change. The design left these revision roles
+open. Future execution must retain both identities rather than rebundle after
+every customer commit or accept a moving branch label.
+
+### Preserve original time and independently bound inputs
+
+**Verdict:** sound · **Confidence:** high. **When:** controller observation.
+
+Reading an old successful controller result today cannot make it fresh. The
+customer chooses a lower time bound and maximum age for the original reconcile
+and completed operation. The observer rechecks that window and its source,
+namespace, Site, policy, and selected Helm history after reading resources.
+Resolved private Site paths share the CLI's resolver, while original source
+bytes remain separately bound. The design left this binding protocol open.
+Observation time is only a receipt; changed or unavailable inputs block instead
+of silently changing the reviewed environment.
+
+### Keep source inspection inert and generation explicit
+
+**Verdict:** sound · **Confidence:** high. **When:** controller observation.
+
+An Argo source-override file can change generation before a directory filter
+runs. The observer therefore rejects those committed overrides and requires the
+reported plain-directory source. Local Git reads use a provisioned executable
+outside the repository with executable helpers disabled. State and output stay
+outside the source tree. The design left these source details open. Preparing
+or observing a release cannot execute a repository-supplied Git program, apply a
+patch, fetch, commit, or push; additional source modes need their own contract.
+
+### Share rendering while refusing an active Helm owner
+
+**Verdict:** sound · **Confidence:** high. **When:** controller observation.
+
+An externally owned application must not inherit a live Helm release's values.
+After proving the selected Helm history absent or uninstalled, this profile
+freezes an install rendering context and rechecks history afterward. Native Helm
+upgrades still derive their own upgrade context through the same renderer. The
+design prohibited a second writer but left rendering context open. A new active
+Helm record blocks observation instead of triggering another values read or
+silently changing the source proposal.
+
+### File restoration and application recovery remain separate evidence
+
+**Verdict:** sound · **Confidence:** high. **When:** controller observation.
+
+A later commit or explicit reset may restore one reviewed file while other files
+remain different. Optional reversion evidence checks that exact file's local
+history and bytes. It does not establish a whole-tree rollback, controller
+transition, restored application data, or passing workflows. Reports retain
+validated identities, digests, times, and match facts rather than source/config
+values or raw controller errors. The design separated recovery domains but left
+the first evidence format open. A ready observation remains point-in-time
+evidence with application acceptance not established, never execution authority.

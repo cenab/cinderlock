@@ -19,19 +19,21 @@ See the [qualification record](../../docs/qualification.md) for the evidence
 boundary. Local receipts remain private under `.local/qualification-004/`.
 
 Published `0a73b09` passed hosted Go checks and the real CPU Kubernetes workflow.
-Later endpoint, explicit worker-budget and measured numeric Job changes are now
-merged; whole-tree local checks pass after fixture migration. Requalify these
-changes with the refreshed application/helper images under `.local/qualification-005/`.
-The owned builder is `cinderlock-qualification005`; retain exact source receipts.
+Later endpoint, worker-budget and measured numeric Job changes are undergoing a
+fresh native run from `8db0077` under `.local/qualification-005/`; installation
+passed all six checks, while the complete transition/recovery result is pending.
+The owned image builder has been removed; archives and exact receipts remain.
 
-Finish the remaining F39 source/controller observation, model preparation and
-independently authorized application-check paths, then run the complete release
-gates and publish. A pinned Argo CD v3.6.1 core is running in the disposable
-`kind-cinderlock-test` cluster, namespace `cinderlock-argocd-lab`; its source/image
-and bootstrap identities are private under `.local/argocd-profile/`. No GitOps
-application workflow is qualified yet. New passes remain separate from the
-hosted core baseline, and incomplete original-worker identities cannot serve as
-resume evidence.
+The bounded Argo directory/source/resource observer is merged as `7110c88` and
+passes integrated whole-tree checks. Qualify it against the pinned Argo CD core
+in `kind-cinderlock-test`, namespace `cinderlock-argocd-lab`, using the separate
+fixture preparation pass. Bootstrap identities remain private under
+`.local/argocd-profile/`; no GitOps application workflow is qualified yet.
+Finish F39 model/data preparation, independently authorized application checks
+and data recovery using the normal engine, then run the complete release gates
+and publish. Controller observation alone cannot establish application acceptance.
+Keep these passes separate from the hosted core baseline; incomplete original
+worker identities cannot serve as resume evidence.
 
 The user will supply NVIDIA test hardware later. Keep GPU qualification open;
 continue all CPU, artifact, permission, security, catalog, and distribution work.
