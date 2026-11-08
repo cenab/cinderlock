@@ -62,6 +62,10 @@ file, checks their exact bindings, and verifies the expected semantic state.
 Own confirmed resource changes advance a durable checkpoint; ordinary resource
 status changes do not count as drift. Required secret references must be
 available, and raw credential values are not written into the run journal.
+After the final workflow and prerequisite checks, the engine compares the
+current target with the last confirmed checkpoint before recording acceptance.
+A passing check retains its evidence if a resource identity or selected Secret
+changes during that check, but the run does not advance the accepted release.
 
 Missing or conflicting journals, unknown in-flight operations, active competing
 GitOps ownership, expired leases, and unobservable prior workers prevent new

@@ -444,6 +444,9 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	if _, err := e.authorize(p, policy, a, approved); err != nil {
 		return fail(err)
 	}
+	if _, err := e.currentCheckpoint(ctx, result.RunID, p); err != nil {
+		return fail(err)
+	}
 	result.State = "succeeded"
 	result.Acceptance = "pass"
 	result.FinishedAt = spec.Now()
