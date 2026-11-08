@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -100,6 +101,56 @@ def header(kind, **metadata):
     return dict(apiVersion=API, schemaVersion=1, kind=kind, metadata=metadata)
 
 
+def registry_container_observation(parsed_docker_inspect, expected_name):
+    try:
+        if (not isinstance(expected_name, str) or
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", expected_name) or
+                not isinstance(parsed_docker_inspect, list) or len(parsed_docker_inspect) != 1 or
+                not isinstance(parsed_docker_inspect[0], dict)):
+            raise ValueError
+        container = parsed_docker_inspect[0]
+        container_id = container["Id"]
+        state = container["State"]
+        address = container["NetworkSettings"]["Networks"]["kind"]["IPAddress"]
+        if (container["Name"] != "/" + expected_name or
+                not isinstance(container_id, str) or not re.fullmatch(r"[0-9a-f]{64}", container_id) or
+                state["Running"] is not True or state["Status"] != "running" or
+                not isinstance(address, str)):
+            raise ValueError
+        ip = ipaddress.IPv4Address(address)
+        if (ip.is_unspecified or ip.is_loopback or ip.is_link_local or ip.is_multicast or
+                address == "255.255.255.255"):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("invalid registry container observation") from None
+    return dict(name=expected_name, containerID=container_id, network="kind", address=address, port=5000)
+
+
+def registry_route(namespace, observation):
+    labels = {"cinderlock.dev/lab": "registry-probe"}
+    return dict(apiVersion="v1", kind="List", items=[
+        dict(apiVersion="v1", kind="Service",
+            metadata=dict(name="registry-probe", namespace=namespace, labels=labels),
+            spec=dict(ports=[dict(name="registry", protocol="TCP", port=5000, targetPort=5000)])),
+        dict(apiVersion="discovery.k8s.io/v1", kind="EndpointSlice",
+            metadata=dict(name="registry-probe", namespace=namespace,
+                labels={**labels, "kubernetes.io/service-name": "registry-probe"}),
+            addressType="IPv4", ports=[dict(name="registry", protocol="TCP", port=5000)],
+            endpoints=[dict(addresses=[observation["address"]])]),
+    ])
+
+
+def admit_registry_probe(site_spec, policy_spec):
+    for spec in (site_spec, policy_spec):
+        actions = spec.setdefault("allowedActions", [])
+        for action in ("job", "endpoint-probe", "endpoint-http"):
+            if action not in actions:
+                actions.append(action)
+    hosts = site_spec.setdefault("allowedHosts", [])
+    if "registry-probe" not in hosts:
+        hosts.append("registry-probe")
+
+
 def workflow_checks(number, fixture):
     names = (["health", "ingestion", "query", "persistence"] if number == 1
              else ["persistence", "health", "query", "ingestion"] if number == 2
@@ -124,6 +175,8 @@ def workflow_checks(number, fixture):
         if check["domain"] == "workflow":
             check["fixtures"] = ["acceptance-fixture"]
             check["command"] += ["--fixture", "/cinderlock-fixtures/acceptance-fixture/document.json"]
+    checks.append(dict(id="registry-route", type="endpoint", domain="readiness", required=True,
+        url="http://registry-probe:5000/v2/", method="GET", expectedStatus=200, timeoutSeconds=30))
     return checks
 
 
@@ -163,8 +216,32 @@ class Lab:
         return self.command(["kubectl", "--kubeconfig", self.args.kubeconfig,
                              "--context", self.args.context, *args])
 
+    def json_observation(self, argv, maximum):
+        completed = subprocess.run([str(arg) for arg in argv], cwd=PROJECT,
+                                   capture_output=True, timeout=30, env=self.env)
+        if completed.returncode != 0 or completed.stderr or len(completed.stdout) > maximum:
+            raise RuntimeError("lab JSON observation failed or exceeded its bound")
+
+        def unique(pairs):
+            value = dict(pairs)
+            if len(value) != len(pairs):
+                raise ValueError
+            return value
+
+        try:
+            value = json.loads(completed.stdout, object_pairs_hook=unique)
+        except (ValueError, UnicodeError, RecursionError):
+            raise RuntimeError("lab JSON observation is malformed") from None
+        return value, "sha256:" + hashlib.sha256(completed.stdout).hexdigest()
+
     def prepare(self):
+        inspected, _ = self.json_observation(["docker", "inspect", "--type", "container", "--", self.args.registry_container], 1 << 20)
+        registry = registry_container_observation(inspected, self.args.registry_container)
+        save(self.work / "registry-observation.json", registry)
         self.kube("create", "namespace", self.namespace)
+        route = self.work / "registry-route.json"
+        save(route, registry_route(self.namespace, registry))
+        self.kube("create", "-f", route)
         self.cli("trust", "keygen", "--private", self.work / "release.key",
                  "--public", self.work / "release.pub")
         self.cli("trust", "keygen", "--private", self.work / "approval.key",
@@ -184,7 +261,6 @@ class Lab:
                    "registry-http", "support-export", "gitops-observe", "storage-assertions",
                    "admission-dry-run"]
         policy["spec"]["allowedActions"] = actions
-        save(self.work / "trust.json", policy)
         helm = Path(shutil.which("helm")).resolve()
         site = header("Site", name=self.namespace)
         site["spec"] = dict(kubeconfig=str(Path(self.args.kubeconfig).resolve()), context=self.args.context,
@@ -197,6 +273,8 @@ class Lab:
             values=dict(data=dict(capacity="192Mi")),
             stateDir=str(self.work / "state"), allowedActions=actions,
             dataRevision="schema-v1", backupRef="/data/before-v2.sqlite")
+        admit_registry_probe(site["spec"], policy["spec"])
+        save(self.work / "trust.json", policy)
         save(self.site, site)
         preview = self.cli("trust", "admit-policy", "--site", self.site)
         assert preview["admitted"] is False
@@ -365,28 +443,74 @@ class Lab:
                  "--key-id", "release", "--out", bundle)
         return bundle
 
-    def observation_output(self, source, run_id):
-        def original_pod():
-            job = json.loads(self.kube("-n", self.namespace, "get", "job", source["jobName"], "-o", "json"))
-            assert job["metadata"]["uid"] == source["jobUID"], "numeric Job UID changed"
-            assert job["metadata"]["labels"]["cinderlock.dev/run"] == run_id, "numeric Job run changed"
-            assert job["metadata"]["annotations"]["cinderlock.dev/recipe-digest"] == source["recipeDigest"], "numeric recipe changed"
-            assert any(c["type"] == "Complete" and c["status"] == "True" for c in job["status"]["conditions"]), "numeric Job is not complete"
-            pods = json.loads(self.kube("-n", self.namespace, "get", "pods", "-l", "job-name=" + source["jobName"], "-o", "json"))["items"]
-            assert len(pods) == 1, "numeric Job has no unique original Pod"
-            pod = pods[0]
-            assert (pod["metadata"]["name"], pod["metadata"]["uid"]) == (source["podName"], source["podUID"]), "numeric Pod identity changed"
-            assert pod["status"]["phase"] == "Succeeded", "numeric Pod did not complete successfully"
-            controllers = [owner for owner in pod["metadata"]["ownerReferences"] if owner.get("controller")]
-            assert len(controllers) == 1 and all(controllers[0][key] == value for key, value in
-                dict(apiVersion="batch/v1", kind="Job", name=source["jobName"], uid=source["jobUID"]).items()), "numeric Pod owner changed"
+    def worker_pod(self, source, run_id):
+        job = json.loads(self.kube("-n", self.namespace, "get", "job", source["jobName"], "-o", "json"))
+        assert job["metadata"]["uid"] == source["jobUID"], "worker Job UID changed"
+        assert job["metadata"]["labels"]["cinderlock.dev/run"] == run_id, "worker Job run changed"
+        assert job["metadata"]["annotations"]["cinderlock.dev/recipe-digest"] == source["recipeDigest"], "worker recipe changed"
+        assert any(c["type"] == "Complete" and c["status"] == "True" for c in job["status"]["conditions"]), "worker Job is not complete"
+        pods = json.loads(self.kube("-n", self.namespace, "get", "pods", "-l", "job-name=" + source["jobName"], "-o", "json"))["items"]
+        assert len(pods) == 1, "worker Job has no unique original Pod"
+        pod = pods[0]
+        assert pod["metadata"]["uid"] and pod["status"]["phase"] == "Succeeded", "worker Pod did not complete successfully"
+        controllers = [owner for owner in pod["metadata"]["ownerReferences"] if owner.get("controller")]
+        assert len(controllers) == 1 and all(controllers[0][key] == value for key, value in
+            dict(apiVersion="batch/v1", kind="Job", name=source["jobName"], uid=source["jobUID"]).items()), "worker Pod owner changed"
+        return job, pod
 
-        original_pod()
+    def observation_output(self, source, run_id):
+        _, pod = self.worker_pod(source, run_id)
+        identity = (source["podName"], source["podUID"])
+        assert (pod["metadata"]["name"], pod["metadata"]["uid"]) == identity, "numeric Pod identity changed"
         output = self.kube("-n", self.namespace, "logs", "pod/" + source["podName"], "-c", "operation")
-        original_pod()
+        _, pod = self.worker_pod(source, run_id)
+        assert (pod["metadata"]["name"], pod["metadata"]["uid"]) == identity, "numeric Pod identity changed"
         assert 0 < len(output.encode()) <= 64 << 10, "numeric output exceeds the declared document bound"
         assert source["outputDigest"] == "sha256:" + hashlib.sha256(output.encode()).hexdigest(), "numeric original output digest changed"
         return json.loads(output)
+
+    def endpoint_observation(self, plan, result):
+        check = next(check for check in plan["checks"] if check["id"] == "registry-route")
+        assert check["required"] and check["id"] in plan["requiredChecks"], "registry route is not required"
+        outcome = next(check for check in result["checks"] if check["id"] == "registry-route")
+        assert outcome["required"] and outcome["domain"] == "readiness" and outcome["status"] == "pass", "registry prerequisite did not pass"
+        events = self.cli("run", "events", result["runID"])
+        step = "@check/registry-route"
+        bindings = [event for event in events if event["type"] == "worker_bound" and event["data"]["stepID"] == step]
+        assert len(bindings) == 1, "registry route lacks one original public worker binding"
+        binding = bindings[0]["data"]
+        assert binding["role"] == step and binding["attempt"] == 1 and binding["uid"], "registry worker binding changed"
+        assert outcome["evidence"] == "job/" + binding["name"], "registry result references another worker"
+        completed = [event for event in events if event["type"] == "operation_outcome" and event["data"]["stepID"] == step]
+        assert len(completed) == 1 and completed[0]["data"]["state"] == "complete", "registry route has no completed journal outcome"
+        assert bindings[0]["seq"] < completed[0]["seq"], "registry completion preceded its worker binding"
+        mutations = {operation["id"] for operation in plan["operations"] if operation["type"] != "import"}
+        mutation_intents = [event for event in events if event["type"] == "operation_intent" and event["data"]["stepID"] in mutations]
+        assert mutation_intents and completed[0]["seq"] < min(event["seq"] for event in mutation_intents), "registry prerequisite followed application work"
+        source = dict(jobName=binding["name"], jobUID=binding["uid"], recipeDigest=binding["recipeDigest"])
+        expected = dict(image=self.args.registry.rstrip("/") + "/helper@" + self.helper_digest,
+            command=["/usr/local/bin/cinderlock", "helper", "endpoint-probe"], args=["--url", check["url"],
+            "--method", "GET", "--expected-status", "200", "--timeout-seconds", "30", "--allow-http"])
+
+        def original():
+            job, pod = self.worker_pod(source, result["runID"])
+            for spec in [job["spec"]["template"]["spec"], pod["spec"]]:
+                assert len(spec["containers"]) == 1, "registry worker container set changed"
+                container = spec["containers"][0]
+                assert container["name"] == "operation" and all(container[key] == value for key, value in expected.items()), "registry fixed helper recipe changed"
+            statuses = pod["status"]["containerStatuses"]
+            assert len(statuses) == 1 and statuses[0]["name"] == "operation" and statuses[0]["state"]["terminated"]["exitCode"] == 0, "registry worker did not exit zero"
+            return pod["metadata"]["name"], pod["metadata"]["uid"]
+
+        name, uid = original()
+        output, digest = self.json_observation(["kubectl", "--kubeconfig", self.args.kubeconfig, "--context", self.args.context,
+            "-n", self.namespace, "logs", "pod/" + name, "-c", "operation", "--limit-bytes=4096"], 4096)
+        assert original() == (name, uid), "registry Pod identity changed during capture"
+        assert output == dict(apiVersion=API, kind="CommandResult", command="cinderlock helper endpoint-probe",
+            result=dict(status=200, response="observed", authorization="not_supplied")), "registry helper did not emit its bounded status observation"
+        assert type(output["result"]["status"]) is int, "registry observed status is not an integer"
+        return dict(jobName=source["jobName"], jobUID=source["jobUID"], recipeDigest=source["recipeDigest"],
+            podName=name, podUID=uid, exitCode=0, outputDigest=digest, observation=output["result"])
 
     def observations(self, plan, result, missing=False):
         for check in plan["checks"]:
@@ -451,7 +575,9 @@ class Lab:
             result = self.cli("run", "apply", plan, "--authorization", authorization, expected=expected)
         recorded = self.cli("run", "report", result["runID"], "--format", "json")
         assert recorded == result, "public CLI report differs from returned run evidence"
-        self.observations(json.loads(plan.read_text()), recorded, missing=prefix == "v3")
+        planned = json.loads(plan.read_text())
+        save(self.work / f"{prefix}-endpoint.json", self.endpoint_observation(planned, recorded))
+        self.observations(planned, recorded, missing=prefix == "v3")
         self.receipts.append(result)
         save(self.work / f"{prefix}-result.json", result)
         return result
@@ -497,7 +623,7 @@ class Lab:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for flag in ["binary", "kubeconfig", "context", "registry", "workdir", "application-oci", "helper-oci", "platform"]:
+    for flag in ["binary", "kubeconfig", "context", "registry", "registry-container", "workdir", "application-oci", "helper-oci", "platform"]:
         parser.add_argument("--" + flag, required=True)
     args = parser.parse_args()
     if not args.context.startswith("kind-cinderlock-") or not args.registry.startswith("127.0.0.1:"):

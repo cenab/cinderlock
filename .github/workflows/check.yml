@@ -141,7 +141,8 @@ jobs:
         run: |
           python3 tests/integration/kind.py --binary artifacts/cinderlock-linux-amd64 \
             --kubeconfig "$RUNNER_TEMP/kubeconfig" --context "kind-$CINDERLOCK_LAB_NAME" \
-            --registry 127.0.0.1:5006 --workdir "$RUNNER_TEMP/integration" \
+            --registry 127.0.0.1:5006 --registry-container "$CINDERLOCK_LAB_NAME-registry" \
+            --workdir "$RUNNER_TEMP/integration" \
             --application-oci "$RUNNER_TEMP/application.oci.tar" \
             --helper-oci "$RUNNER_TEMP/helper.oci.tar" --platform linux/amd64
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

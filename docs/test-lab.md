@@ -35,7 +35,7 @@ From the repository root, prepare private working paths and the host binary:
 umask 077
 CINDERLOCK_LAB_DIR="$(pwd)/.local/test-lab"
 CINDERLOCK_LAB_NAME=cinderlock-lab
-CINDERLOCK_LAB_REGISTRY=cinderlock-lab-registry
+CINDERLOCK_LAB_REGISTRY=cinderlock-test-registry
 CINDERLOCK_LAB_PORT=5006
 CINDERLOCK_LAB_ARCH=arm64
 CINDERLOCK_LAB_PLATFORM="linux/${CINDERLOCK_LAB_ARCH}"
@@ -144,7 +144,7 @@ registry by Cinderlock, then pulled by actual Kubernetes workloads.
 ## Run the integration workflow
 
 Use a new run directory; the runner retains existing work and does not overwrite
-an earlier run. All eight required flags are explicit:
+an earlier run. All required flags are explicit:
 
 ```sh
 python3 tests/integration/kind.py \
@@ -152,6 +152,7 @@ python3 tests/integration/kind.py \
   --kubeconfig "$CINDERLOCK_LAB_DIR/kubeconfig" \
   --context "kind-${CINDERLOCK_LAB_NAME}" \
   --registry "127.0.0.1:${CINDERLOCK_LAB_PORT}" \
+  --registry-container "$CINDERLOCK_LAB_REGISTRY" \
   --workdir "$CINDERLOCK_LAB_DIR/run-01" \
   --application-oci "$CINDERLOCK_LAB_DIR/application.oci.tar" \
   --helper-oci "$CINDERLOCK_LAB_DIR/helper.oci.tar" \
@@ -163,6 +164,21 @@ test policy and Site, three signed release bundles, target-bound plans, and
 exact-plan authorizations. The fixed test policy includes its HTTP registry,
 destructive synthetic restore, and lab observation/retirement capabilities.
 It is not a production least-privilege policy template.
+
+The registry container argument must name the running registry created above.
+Before creating a namespace, the runner reads only that named container's Docker
+inspection and requires its IPv4 address on the `kind` network. It retains a
+typed identity/address record rather than raw Docker configuration. A selectorless
+`registry-probe` Service and EndpointSlice route port 5000 to that address inside
+the new namespace; their lab labels do not declare application ownership.
+
+Every normal and recovery recipe requires the native helper to observe HTTP 200
+from `http://registry-probe:5000/v2/` before non-import work. The Site and test
+policy explicitly admit the host and HTTP endpoint capabilities. Public worker
+events, the original Job UID/recipe, unique completed Pod and exit zero are
+checked against the bounded helper JSON; `*-endpoint.json` contains the typed
+proof. This is one Job-context response, not fresh node pull-credential validation,
+continuous registry health, or network-isolation evidence.
 
 The first release installs and creates the synthetic document. The second
 stages a separate model PVC, quiesces writes, backs up, migrates schema 1 to 2,
