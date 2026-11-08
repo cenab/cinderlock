@@ -93,10 +93,16 @@ host loopback access through it.
 ## Build the application and fixed helper OCI archives
 
 The runner consumes OCI-layout tar archives with reference `1`, not Docker
-daemon image-save archives. Build the application from the checked-in fixture:
+daemon image-save archives. Use a dedicated container builder that supports
+[OCI archive exports](https://docs.docker.com/build/exporters/oci-docker/).
+Creating this named builder doesn't change your selected default builder.
+Build the application from the checked-in fixture:
 
 ```sh
-docker buildx build --platform "$CINDERLOCK_LAB_PLATFORM" \
+docker buildx create --name "${CINDERLOCK_LAB_NAME}-builder" --driver docker-container \
+  --driver-opt image=moby/buildkit:v0.33.0@sha256:6c2fa84a6b61ccd72899dde4239f8d5717f05f9a8ca6f3cad185fb1a95a94de3
+docker buildx inspect "${CINDERLOCK_LAB_NAME}-builder" --bootstrap
+docker buildx build --builder "${CINDERLOCK_LAB_NAME}-builder" --platform "$CINDERLOCK_LAB_PLATFORM" \
   --provenance=false --sbom=false --tag cinderlock/document-qa:1 \
   --output "type=oci,dest=${CINDERLOCK_LAB_DIR}/application.oci.tar,oci-mediatypes=true" \
   examples/document-qa
@@ -116,7 +122,7 @@ COPY --chmod=0555 cinderlock /usr/local/bin/cinderlock
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/cinderlock"]
 EOF
-docker buildx build --platform "$CINDERLOCK_LAB_PLATFORM" \
+docker buildx build --builder "${CINDERLOCK_LAB_NAME}-builder" --platform "$CINDERLOCK_LAB_PLATFORM" \
   --provenance=false --sbom=false --tag cinderlock/helper:1 \
   --output "type=oci,dest=${CINDERLOCK_LAB_DIR}/helper.oci.tar,oci-mediatypes=true" \
   "$CINDERLOCK_LAB_DIR/helper"
@@ -187,13 +193,13 @@ When finished reviewing the synthetic lab, deleting its cluster removes its
 test workloads and local data. Keep receipts under your chosen retention policy:
 
 ```sh
+docker buildx rm "${CINDERLOCK_LAB_NAME}-builder"
 kind delete cluster --name "$CINDERLOCK_LAB_NAME" \
   --kubeconfig "$CINDERLOCK_LAB_DIR/kubeconfig"
 docker stop "$CINDERLOCK_LAB_REGISTRY"
 docker rm "$CINDERLOCK_LAB_REGISTRY"
 ```
 
-These steps describe the reproducible setup. The guide does not claim its full
-command sequence has been rerun on a fresh host or that the final recovery gate
-passed. Record the actual final integration receipt separately. No network
-isolation is established by creating this lab.
+Keep each integration receipt with its source and tool identities. The
+[qualification record](qualification.md) states the scope of completed runs.
+Creating this lab does not establish network isolation.
