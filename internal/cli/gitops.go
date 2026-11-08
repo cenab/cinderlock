@@ -10,6 +10,7 @@ import (
 )
 
 func addGitOpsDelivery(g *cobra.Command, o *options) {
+	addGitOpsProfileObservation(g, o)
 	var site, out string
 	plan := &cobra.Command{Use: "artifacts-plan BUNDLE", Short: "Plan authorized image-only staging for an external GitOps owner", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
 		ctx, cancel := o.context(c)
@@ -93,4 +94,60 @@ func addGitOpsDelivery(g *cobra.Command, o *options) {
 		_ = propose.MarkFlagRequired(flag)
 	}
 	g.AddCommand(propose)
+}
+
+func addGitOpsProfileObservation(g *cobra.Command, o *options) {
+	var site, contractPath, manifestPath, out string
+	observe := &cobra.Command{Use: "observe-profile BUNDLE", Short: "Read exact source, Argo CD, and live resource evidence under a bounded contract", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
+		ctx, cancel := o.context(c)
+		defer cancel()
+		var contract engine.GitOpsProfileContract
+		if err := spec.Read(contractPath, &contract); err != nil {
+			return err
+		}
+		s, policy, err := o.site(site)
+		if err != nil {
+			return err
+		}
+		for _, selected := range []string{s.Spec.StateDir, out, os.TempDir()} {
+			if _, err = engine.GitOpsPreparationPath(contract.Repository, selected); err != nil {
+				return err
+			}
+		}
+		manifest, err := engine.ReadGitOpsManifest(absolute(manifestPath))
+		if err != nil {
+			return err
+		}
+		v, err := bundle.Verify(ctx, args[0], policy)
+		if err != nil {
+			return err
+		}
+		defer v.Close()
+		eng, err := engine.New(s, nil)
+		if err != nil {
+			return err
+		}
+		result, err := eng.ObserveGitOpsProfile(ctx, v, policy, absolute(site), contract, manifest)
+		if err != nil {
+			return err
+		}
+		if err = engine.WriteGitOpsProfileObservation(contract.Repository, out, result); err != nil {
+			return err
+		}
+		if err = o.emit(result); err != nil {
+			return err
+		}
+		if !result.Ready {
+			return spec.Err(10, "controller profile is blocked; inspect its recorded evidence and findings")
+		}
+		return nil
+	}}
+	observe.Flags().StringVar(&site, "site", "", "Explicit private Site for the verified render and target")
+	observe.Flags().StringVar(&contractPath, "contract", "", "Exact argocd-directory-v1 source, controller identity, and original time window")
+	observe.Flags().StringVar(&manifestPath, "manifest", "", "Reviewed desired state matching the verified bundle and Site")
+	observe.Flags().StringVar(&out, "out", "", "New private observation artifact outside the source repository")
+	for _, flag := range []string{"site", "contract", "manifest", "out"} {
+		_ = observe.MarkFlagRequired(flag)
+	}
+	g.AddCommand(observe)
 }

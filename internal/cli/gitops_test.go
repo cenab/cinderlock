@@ -32,7 +32,7 @@ func gitOpsCLIFixture(t *testing.T) (artifactFixture, string, string) {
 	h.ok("trust", "keygen", "--private", f.keyPath, "--public", f.publicPath)
 	h.ok("trust", "init", "--public", f.publicPath, "--application", "cli-fixture", "--out", f.policyPath)
 	policy := decode[spec.TrustPolicy](t, read(t, f.policyPath))
-	policy.Spec.AllowedActions = append(policy.Spec.AllowedActions, "gitops-stage")
+	policy.Spec.AllowedActions = append(policy.Spec.AllowedActions, "gitops-stage", "gitops-observe")
 	body, err := spec.Canonical(policy)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func gitOpsCLIFixture(t *testing.T) (artifactFixture, string, string) {
 	if err = os.Chmod(helmpath, 0700); err != nil {
 		t.Fatal(err)
 	}
-	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Kubeconfig: kubeconfig, Context: "test", Namespace: "test", ReleaseName: "application", TrustPolicy: f.policyPath, Profile: "gitops-fixture", Registry: "registry.internal/offline", AllowedActions: []string{"import", "gitops-stage"}, HelmPath: helmpath, HelmDigest: spec.Hash(renderer)}}
+	site := spec.Site{Header: spec.NewHeader("Site"), Spec: spec.SiteSpec{Kubeconfig: kubeconfig, Context: "test", Namespace: "test", ReleaseName: "application", TrustPolicy: f.policyPath, Profile: "gitops-fixture", Registry: "registry.internal/offline", AllowedActions: []string{"import", "gitops-stage", "gitops-observe"}, HelmPath: helmpath, HelmDigest: spec.Hash(renderer)}}
 	site.Metadata.Name = "test"
 	sitePath := filepath.Join(h.dir, "site.json")
 	if err = spec.Write(sitePath, site); err != nil {

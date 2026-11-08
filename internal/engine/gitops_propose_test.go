@@ -307,6 +307,27 @@ func TestGitOpsSourceProposalIsolatesGitConfigurationAndHelpers(t *testing.T) {
 	}
 }
 
+func TestGitOpsSourceProposalDoesNotExecuteSourceLocalGit(t *testing.T) {
+	r := newProposalRepository(t, []byte("kind: ConfigMap\n"))
+	bin := filepath.Join(r.dir, "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	git := filepath.Join(bin, "git")
+	sentinel := git + ".executed"
+	mustWriteProposalFile(t, git, []byte("#!/bin/sh\nprintf invoked > \"$0.executed\"\nexit 1\n"))
+	if err := os.Chmod(git, 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Dir(r.git))
+	if _, err := ProposeGitOpsSource(context.Background(), r.dir, r.head, "application.yaml", []byte("kind: Secret\n")); err == nil {
+		t.Fatal("source-local Git executable was admitted")
+	}
+	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
+		t.Fatal("source-controlled executable ran during observation", err)
+	}
+}
+
 func TestGitOpsProposalWriterIsPrivateExclusiveAndOutsideSource(t *testing.T) {
 	r := newProposalRepository(t, []byte("kind: ConfigMap\n"))
 	change, err := ProposeGitOpsSource(context.Background(), r.dir, r.head, "application.yaml", []byte("kind: Secret\n"))

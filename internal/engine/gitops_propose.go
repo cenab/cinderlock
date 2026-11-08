@@ -162,6 +162,25 @@ type gitOpsRepository struct {
 	directory, git string
 }
 
+func gitOpsExecutable(repository string) (string, error) {
+	selected, err := exec.LookPath("git")
+	if err != nil {
+		return "", spec.Err(10, "an installed local Git executable is required")
+	}
+	resolved, err := filepath.EvalSymlinks(selected)
+	if err != nil {
+		return "", spec.Err(10, "local Git executable cannot be resolved")
+	}
+	if _, err := GitOpsPreparationPath(repository, resolved); err != nil {
+		return "", spec.Err(10, "Git must be provisioned outside the source repository")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", spec.Err(10, "local Git executable must be a regular file")
+	}
+	return resolved, nil
+}
+
 func (repo gitOpsRepository) read(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -189,6 +208,50 @@ func gitOpsRecord(data []byte) ([]string, error) {
 	return append(parts, path), nil
 }
 
+func (repo gitOpsRepository) committedFile(ctx context.Context, revision, target string) (string, []byte, error) {
+	actual, err := repo.read(ctx, "rev-parse", "--verify", revision+"^{commit}")
+	if err != nil || strings.TrimSpace(string(actual)) != revision {
+		return "", nil, spec.Err(11, "GitOps expected revision is not an exact local commit")
+	}
+	tree, err := repo.read(ctx, "ls-tree", "-z", revision, "--", target)
+	if err != nil {
+		return "", nil, err
+	}
+	tracked, err := gitOpsRecord(tree)
+	if err != nil {
+		return "", nil, err
+	}
+	if tracked[0] != "100644" || tracked[1] != "blob" || tracked[3] != target {
+		return "", nil, spec.Err(11, "GitOps target must be an exact non-executable committed regular file")
+	}
+	attributes, err := repo.read(ctx, "check-attr", "--source="+revision, "--all", "-z", "--", target)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(attributes) != 0 {
+		return "", nil, spec.Err(10, "GitOps target attributes, filters, and diff drivers require a separately supported profile")
+	}
+	size, err := repo.read(ctx, "cat-file", "-s", tracked[2])
+	if err != nil {
+		return "", nil, err
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(size)), 10, 64)
+	if err != nil || n < 0 || n > maxGitOpsFileBytes {
+		return "", nil, spec.Err(2, "GitOps committed file exceeds the bounded text profile")
+	}
+	body, err := repo.read(ctx, "cat-file", "blob", tracked[2])
+	if err != nil {
+		return "", nil, err
+	}
+	if int64(len(body)) != n {
+		return "", nil, spec.Err(11, "GitOps committed file changed while reading")
+	}
+	if !utf8.Valid(body) || bytes.IndexByte(body, 0) >= 0 {
+		return "", nil, spec.Err(2, "GitOps source is binary or invalid UTF-8")
+	}
+	return tracked[2], body, nil
+}
+
 func (repo gitOpsRepository) snapshot(ctx context.Context, head, target string) (string, []byte, error) {
 	actual, err := repo.read(ctx, "rev-parse", "--verify", "HEAD")
 	if err != nil {
@@ -197,15 +260,7 @@ func (repo gitOpsRepository) snapshot(ctx context.Context, head, target string) 
 	if strings.TrimSpace(string(actual)) != head {
 		return "", nil, spec.Err(11, "GitOps repository HEAD differs from the reviewed commit")
 	}
-	kind, err := repo.read(ctx, "cat-file", "-t", head)
-	if err != nil || strings.TrimSpace(string(kind)) != "commit" {
-		return "", nil, spec.Err(11, "GitOps expected revision is not an exact local commit")
-	}
-	tree, err := repo.read(ctx, "ls-tree", "-z", head, "--", target)
-	if err != nil {
-		return "", nil, err
-	}
-	tracked, err := gitOpsRecord(tree)
+	blob, body, err := repo.committedFile(ctx, head, target)
 	if err != nil {
 		return "", nil, err
 	}
@@ -217,10 +272,10 @@ func (repo gitOpsRepository) snapshot(ctx context.Context, head, target string) 
 	if err != nil {
 		return "", nil, err
 	}
-	if tracked[0] != "100644" || tracked[1] != "blob" || tracked[3] != target || staged[0] != "100644" || staged[1] != tracked[2] || staged[2] != "0" || staged[3] != target {
+	if staged[0] != "100644" || staged[1] != blob || staged[2] != "0" || staged[3] != target {
 		return "", nil, spec.Err(11, "GitOps target must be the clean exact regular HEAD/index file")
 	}
-	for _, args := range [][]string{{"check-attr", "--source=" + head, "--all", "-z", "--", target}, {"check-attr", "--cached", "--all", "-z", "--", target}, {"check-attr", "--all", "-z", "--", target}} {
+	for _, args := range [][]string{{"check-attr", "--cached", "--all", "-z", "--", target}, {"check-attr", "--all", "-z", "--", target}} {
 		attributes, err := repo.read(ctx, args...)
 		if err != nil {
 			return "", nil, err
@@ -228,18 +283,6 @@ func (repo gitOpsRepository) snapshot(ctx context.Context, head, target string) 
 		if len(attributes) != 0 {
 			return "", nil, spec.Err(10, "GitOps target attributes, filters, and diff drivers require a separately supported profile")
 		}
-	}
-	size, err := repo.read(ctx, "cat-file", "-s", tracked[2])
-	if err != nil {
-		return "", nil, err
-	}
-	n, err := strconv.ParseInt(strings.TrimSpace(string(size)), 10, 64)
-	if err != nil || n < 0 || n > maxGitOpsFileBytes {
-		return "", nil, spec.Err(2, "GitOps HEAD file exceeds the bounded text profile")
-	}
-	body, err := repo.read(ctx, "cat-file", "blob", tracked[2])
-	if err != nil {
-		return "", nil, err
 	}
 	working, err := readGitOpsFile(repo.root, target)
 	if err != nil {
@@ -249,13 +292,10 @@ func (repo gitOpsRepository) snapshot(ctx context.Context, head, target string) 
 	if err != nil || !workingInfo.Mode().IsRegular() || workingInfo.Mode().Perm()&0111 != 0 {
 		return "", nil, spec.Err(11, "GitOps working target has an unsafe file type or changed executable mode")
 	}
-	if int64(len(body)) != n || !bytes.Equal(body, working) {
+	if !bytes.Equal(body, working) {
 		return "", nil, spec.Err(11, "GitOps working target differs from the exact HEAD/index bytes")
 	}
-	if !utf8.Valid(body) || bytes.IndexByte(body, 0) >= 0 {
-		return "", nil, spec.Err(2, "GitOps source is binary or invalid UTF-8")
-	}
-	return tracked[2], body, nil
+	return blob, body, nil
 }
 
 // ProposeGitOpsSource never changes the index, files, refs, or remote repository.
@@ -307,9 +347,9 @@ func ProposeGitOpsSource(ctx context.Context, repository, head, target string, d
 			break
 		}
 	}
-	git, err := exec.LookPath("git")
+	git, err := gitOpsExecutable(directory)
 	if err != nil {
-		return out, spec.Err(10, "an installed local Git executable is required")
+		return out, err
 	}
 	repo := gitOpsRepository{root: root, directory: directory, git: git}
 	blob, before, err := repo.snapshot(ctx, head, target)
@@ -433,16 +473,7 @@ func (e *Engine) ProposeGitOps(ctx context.Context, v *bundle.Verified, policy s
 	if _, err := GitOpsPreparationPath(repository, e.StateDir); err != nil {
 		return out, err
 	}
-	manifestParent, err := filepath.EvalSymlinks(filepath.Dir(manifestPath))
-	if err != nil {
-		return out, err
-	}
-	parent, _, err := openGitOpsDirectory(manifestParent)
-	if err != nil {
-		return out, err
-	}
-	desired, err := readGitOpsFile(parent, filepath.Base(manifestPath))
-	_ = parent.Close()
+	desired, err := ReadGitOpsManifest(manifestPath)
 	if err != nil {
 		return out, err
 	}
@@ -480,8 +511,30 @@ func (e *Engine) ProposeGitOps(ctx context.Context, v *bundle.Verified, policy s
 	return out, nil
 }
 
+// ReadGitOpsManifest reads one bounded regular input without following file symlinks.
+func ReadGitOpsManifest(input string) ([]byte, error) {
+	parentPath, err := filepath.EvalSymlinks(filepath.Dir(input))
+	if err != nil {
+		return nil, spec.Err(2, "reviewed manifest parent is unavailable")
+	}
+	parent, _, err := openGitOpsDirectory(parentPath)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	return readGitOpsFile(parent, filepath.Base(input))
+}
+
 func WriteGitOpsProposal(output string, proposal GitOpsProposal) error {
-	path, err := GitOpsPreparationPath(proposal.Source.Repository, output)
+	return writeGitOpsArtifact(proposal.Source.Repository, output, proposal)
+}
+
+func WriteGitOpsProfileObservation(repository, output string, observation GitOpsProfileObservation) error {
+	return writeGitOpsArtifact(repository, output, observation)
+}
+
+func writeGitOpsArtifact(repository, output string, artifact any) error {
+	path, err := GitOpsPreparationPath(repository, output)
 	if err != nil {
 		return err
 	}
@@ -497,9 +550,9 @@ func WriteGitOpsProposal(output string, proposal GitOpsProposal) error {
 	defer root.Close()
 	after, err := root.Stat(".")
 	if err != nil || !os.SameFile(before, after) {
-		return spec.Err(11, "GitOps proposal output directory changed")
+		return spec.Err(11, "GitOps output directory changed")
 	}
-	body, err := spec.Canonical(proposal)
+	body, err := spec.Canonical(artifact)
 	if err != nil {
 		return err
 	}

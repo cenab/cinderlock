@@ -53,10 +53,11 @@ stop ends as `artifacts_failed`; uncertain transfers retain the active gate.
 Changed Site, policy, target, or credential bindings require investigation and a
 fresh authorized plan where applicable.
 
-The phase stages images only. Bundled models, data volumes, controller hooks,
-application workflows, source reversion, and data recovery require their own
-supported delivery and qualification procedures. The controller's ready status
-alone never supplies application acceptance.
+The phase stages images only. GitOps model/data preparation isn't implemented;
+it doesn't prepare model PVCs. Application workflows, controller hooks, resource
+rollback, and data recovery require their own supported mechanisms and
+qualification. The controller's ready status alone never supplies application
+acceptance.
 
 ## Propose a local source change
 
@@ -102,3 +103,76 @@ Review and submit the patch through your normal source-control process. If HEAD
 or the selected file changes, create and review a new proposal. Source review
 doesn't authorize application execution or establish controller reconciliation,
 workflow acceptance, hook behavior, or data recovery.
+
+## Observe the controller and selected resources
+
+The optional `argocd-directory-v1` profile reads an exact Argo CD Application,
+its accepted source, and the reviewed live resources. It produces a private
+`GitOpsProfileObservation` with original controller timestamps, source and target
+identities, match facts, and blockers. `ready: true` establishes this bounded
+observation contract; application acceptance remains `not_established`.
+
+Use a customer-selected local repository at the accepted full commit. Its
+selected file must match HEAD, index, working bytes, and the reviewed export.
+Both Site and policy must allow `gitops-observe`. Select the existing
+Application's namespace, name, and UID, the credential-free source URL, the
+accepted commit and manifest digest, and an original reconcile/operation time
+window in a private contract. The [contract type](../internal/engine/gitops_profile.go)
+owns its exact fields and limits.
+
+The signed GitOps revision remains the proposal's expected base commit. Applying
+the reviewed source change through customer procedure creates a separate
+accepted commit, selected explicitly in the observation contract. Observation
+binds that commit to the exact signed path and reviewed render without rebuilding
+the vendor bundle. The raw observer's explicit revision argument keeps its
+controller-label semantics; it doesn't supply this stronger source binding.
+
+```sh
+cinderlock --state /private/cinderlock-state gitops observe-profile \
+  release.cinder --site /private/site.yaml \
+  --contract /private/controller-contract.json \
+  --manifest /private/reviewed-desired.yaml \
+  --out /private/controller-observation.json
+```
+
+Argo's source path is a directory. This profile requires explicit directory
+mode, an exact include for the signed YAML filename, and the reported effective
+source type `Directory`. It rejects alternate generators, recursion, exclusions,
+multi-source configuration, ignore rules, and repository source-override YAML.
+Those overrides are read before the directory include filter. Source URLs are
+compared without fetching and appear in the observation only as a digest.
+
+The destination is the controller's in-cluster server and the selected Site
+namespace. The profile supports Deployment, ClusterIP Service, and ConfigMap
+resources. It reads only the exact names in the reviewed manifest and requires
+the controller's resource and completed-operation inventories to agree. It
+checks supplied fields, known API defaults, Deployment rollout, Argo tracking
+annotations and server-side-apply ownership, and unresolved hooks or competing
+writers. Unknown kinds, opaque lifecycle hooks, force operations, and ambiguous
+facts stay blocked. This isn't a general proof that no drift or other writer
+exists.
+
+The pinned Helm tool reads the selected release's history before and after
+observation. Active or uncertain history blocks this profile. Rendering uses a
+frozen install context through the shared renderer and never reads active Helm
+values. A templated `managed-by: Helm` label doesn't create Helm ownership;
+release annotations, actual writer claims, and history remain relevant. The
+explicit Argo/resource client makes GET requests only; Helm's selected history
+read can use a storage list. No application mutation, hook, sync request, or
+workflow check runs. Original controller times must still be fresh after the
+final reads; a new local receipt time never refreshes them.
+
+An optional reversion reference compares selected historical commits with the
+accepted clean file. It can observe an exact reset or a later commit restoring
+the reviewed bytes while unrelated files remain changed. This establishes one
+tracked file's bytes, without applying a patch or establishing whole-tree
+reversion, controller rollback, application-data recovery, or workflow success.
+
+The adapter is grounded in the pinned Argo
+[API definitions](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/pkg/apis/application/v1alpha1/types.go),
+[source generation](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/reposerver/repository/repository.go),
+and [resource tracking](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/docs/user-guide/resource_tracking.md).
+Fake API fixtures verify inspection, denial, and redaction behavior; temporary
+Git repositories verify file and history handling. These checks don't establish
+live controller reconciliation. Controller/version qualification, model/data
+preparation, and independently authorized application workflows remain open.

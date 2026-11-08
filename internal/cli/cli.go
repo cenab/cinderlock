@@ -205,19 +205,7 @@ func loadSite(path string) (spec.Site, spec.TrustPolicy, error) {
 		return s, spec.TrustPolicy{}, e
 	}
 	base := filepath.Dir(absolute(path))
-	s.Spec.Kubeconfig = relative(base, s.Spec.Kubeconfig)
-	s.Spec.TrustPolicy = relative(base, s.Spec.TrustPolicy)
-	s.Spec.RegistryCAFile = relative(base, s.Spec.RegistryCAFile)
-	s.Spec.StateDir = relative(base, s.Spec.StateDir)
-	s.Spec.StorageOperatorPath = relative(base, s.Spec.StorageOperatorPath)
-	s.Spec.HardwareEvidence = relative(base, s.Spec.HardwareEvidence)
-	if strings.Contains(s.Spec.HelmPath, string(filepath.Separator)) {
-		s.Spec.HelmPath = relative(base, s.Spec.HelmPath)
-	}
-	for k, v := range s.Spec.SecretRefs {
-		v.File = relative(base, v.File)
-		s.Spec.SecretRefs[k] = v
-	}
+	s = spec.ResolveSitePaths(s, base)
 	p, e := loadPolicy(s.Spec.TrustPolicy)
 	return s, p, e
 }

@@ -17,6 +17,7 @@ require (
 	k8s.io/client-go v0.35.0
 	modernc.org/sqlite v1.36.3
 	oras.land/oras-go/v2 v2.6.2
+	sigs.k8s.io/structured-merge-diff/v6 v6.3.0
 )
 
 require (
@@ -68,6 +69,5 @@ require (
 	modernc.org/memory v1.8.2 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )

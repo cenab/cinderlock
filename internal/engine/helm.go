@@ -87,26 +87,38 @@ func (e *Engine) helm(ctx context.Context, args ...string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (e *Engine) helmState(ctx context.Context) (revision int64, version string, values []byte, err error) {
+type helmHistoryEntry struct {
+	Revision   int64  `json:"revision"`
+	Status     string `json:"status"`
+	AppVersion string `json:"app_version"`
+}
+
+func (e *Engine) helmHistory(ctx context.Context) (helmHistoryEntry, bool, error) {
 	b, err := e.helm(ctx, "history", e.Site.Spec.ReleaseName, "--output", "json")
 	if err != nil {
 		if strings.Contains(err.Error(), "release: not found") || strings.Contains(err.Error(), "release not found") {
-			return 0, "", []byte(`{}`), nil
+			return helmHistoryEntry{}, true, nil
 		}
-		return 0, "", nil, err
+		return helmHistoryEntry{}, false, err
 	}
-	var rows []struct {
-		Revision   int64  `json:"revision"`
-		Status     string `json:"status"`
-		AppVersion string `json:"app_version"`
-	}
+	var rows []helmHistoryEntry
 	if err := json.Unmarshal(b, &rows); err != nil {
-		return 0, "", nil, err
+		return helmHistoryEntry{}, false, err
 	}
 	if len(rows) == 0 {
-		return 0, "", nil, errors.New("Helm history is empty but release was not absent")
+		return helmHistoryEntry{}, false, errors.New("Helm history is empty but release was not absent")
 	}
-	latest := rows[len(rows)-1]
+	return rows[len(rows)-1], false, nil
+}
+
+func (e *Engine) helmState(ctx context.Context) (revision int64, version string, values []byte, err error) {
+	latest, absent, err := e.helmHistory(ctx)
+	if err != nil {
+		return 0, "", nil, err
+	}
+	if absent {
+		return 0, "", []byte(`{}`), nil
+	}
 	if latest.Status == "uninstalled" {
 		return latest.Revision, "", []byte(`{}`), nil
 	}
@@ -283,18 +295,24 @@ func inspectChart(path, chartName string) error {
 	}
 }
 
+type helmRenderContext struct{ IsUpgrade bool }
+
 func (e *Engine) render(ctx context.Context, v *bundle.Verified) ([]map[string]any, error) {
+	_, installed, _, err := e.helmState(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return e.renderWithContext(ctx, v, helmRenderContext{IsUpgrade: installed != ""})
+}
+
+func (e *Engine) renderWithContext(ctx context.Context, v *bundle.Verified, frame helmRenderContext) ([]map[string]any, error) {
 	chart, values, cleanup, err := e.helmFiles(v)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 	args := []string{"template", e.Site.Spec.ReleaseName, chart, "--include-crds"}
-	_, installed, _, err := e.helmState(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if installed != "" {
+	if frame.IsUpgrade {
 		args = append(args, "--is-upgrade")
 	}
 	for _, p := range values {
