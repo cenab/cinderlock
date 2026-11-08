@@ -126,6 +126,27 @@ measured numeric Jobs, explicit authored worker budgets and optional-failure
 resume correction. The later native run above covers those changes locally;
 this hosted result does not cover later commits or the strong Argo observer.
 
+## Expanded hosted CPU profile
+
+[GitHub run 42468205931](https://github.com/cenab/cinderlock/actions/runs/42468205931)
+tested commit `edee42d` on November 8, 2026 UTC. Its Go job passed all build,
+race, source-scan, patched-toolchain, offline compilation and distribution
+steps, including the Linux source archive.
+
+Retained Kubernetes receipts show installation passed in 5m59s and upgrade
+passed in 10m11s, including the intended optional numeric-budget failure. The
+deliberate document-loss run finished in 5m48s with failed required workflows
+and acceptance unestablished. Its operation steps passed. GitHub then cancelled
+the job during the remaining profile with the annotation, “The job has exceeded
+the maximum execution time of 30m0s.” No completed recovery receipt or final
+summary was retained, so recovery is unproven for this hosted source.
+
+The expanded profile now has a 45-minute overall Kubernetes job allowance.
+Individual CLI/worker deadlines and all functional assertions are unchanged.
+A new completed run is required to qualify its recovery path. Private terminal
+metadata, logs and verified receipts remain under
+`.local/hosted-ci-42468205931/`.
+
 ## Reproduce and extend the evidence
 
 Use the [lab guide](test-lab.md) for fresh local inputs. The

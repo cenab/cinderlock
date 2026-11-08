@@ -29,7 +29,7 @@ using the normal intent, worker, coordination, approval and recovery owners:
 | `8db0077` | Native CPU install, explicitly resumed upgrade, actual document loss and separate restore passed; endpoint/numeric Jobs included. All 18 original upgrade Jobs and eight volume/manifest bindings survived resume. | `.local/qualification-005/` |
 | `f8bf623` | Real Argo v3.6.1 source/resource/SSA observation, five denial controls and restored original UIDs passed. Application acceptance remains unestablished. | `.local/argocd-profile/` |
 | `34937f5` | Fresh unit/race/vet, actual PostgreSQL, source scan, static Linux builds, full source/toolchain/Helm/legal export and offline compilation passed. Binaries were not run by build checks. | `.local/distribution-34937f5/` |
-| Published `edee42d` | Same Go code plus documentation. Hosted run 42468205931 passed its Go job; CPU Kubernetes job remains in progress. | `.local/hosted-ci-42468205931/` |
+| Published `edee42d` | Hosted run 42468205931 passed its Go job, install, upgrade and expected data-loss failure. The overall 30-minute Kubernetes budget cancelled before recovery proof; the next run uses 45 minutes with unchanged CLI/worker deadlines and assertions. | `.local/hosted-ci-42468205931/` |
 
 The [qualification record](../../docs/qualification.md) owns detailed limits.
 Prerequisite duplication was removed while retaining actual-start, post-wait

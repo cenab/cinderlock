@@ -80,7 +80,7 @@ jobs:
   kubernetes:
     needs: go
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CINDERLOCK_LAB_NAME: cinderlock-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
