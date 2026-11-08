@@ -230,6 +230,59 @@ Historical admission metadata is not permanent validity. Generic `Evidence`
 records remain opaque observations and don't gain typed verification by their
 name. Support-only identities cannot read raw evidence through this endpoint.
 
+## Attach declared runtime observations
+
+An independent producer can include optional `runtimeCapture` data in
+`network-isolation` evidence. The [typed capture contract](../internal/catalog/runtime.go)
+retains bounded DNS, TCP, and UDP attempts with their source attribution,
+destination, reported outcome, and producer-owned confidence. Cinderlock does
+not run a collector, convert raw reports, or inspect traffic during admission.
+Existing evidence signatures, exact subject binding, key admission, and expiry
+checks apply without a separate trust path.
+
+A capture declares a positive time window and explicitly identifies observed
+and unsupported types among DNS, TCP, and UDP. This partition doesn't establish
+exhaustive network capture. ICMP, QUIC semantics, encrypted traffic, other
+namespaces, and any producer-specific gaps remain limitations. Record those
+limits in the surrounding evidence; no general network-independence result is
+computed from observations.
+
+For example, this fragment declares an empty synthetic capture with unknown
+event loss. It is part of a complete evidence body, not a standalone report:
+
+```json
+{
+  "runtimeCapture": {
+    "schemaVersion": 1,
+    "startedAt": "2026-11-07T10:00:00Z",
+    "finishedAt": "2026-11-07T10:01:00Z",
+    "observedProtocols": ["tcp"],
+    "unsupportedProtocols": ["dns", "udp"],
+    "droppedEvents": null,
+    "dropUnknownReason": "not_collected",
+    "observations": []
+  }
+}
+```
+
+Use the producer's actual times and observations. Events must fall within the
+capture window, which must finish by the evidence's observation time. Event IDs
+are unique and the list is bounded. A known drop count is nonnegative; unknown
+loss needs an explicit reason. Missing source namespace, container, or process
+attribution also needs a reason. Known process values are names, never command
+arguments. Unknown destination details, including a missing port, remain
+explicitly unknown; no default DNS port or fabricated identity is supplied.
+Malformed known addresses, names, ports, timestamps, and protocol outcomes fail.
+The schema excludes payloads, raw logs, and command arguments.
+
+Use the existing `evidence sign` and `evidence verify` commands or the signed
+evidence REST endpoints. The signature preserves supplied outcomes and
+confidence as producer claims. A TCP connection, DNS response, or UDP send does
+not establish functional dependence. UDP socket association isn't accepted as a
+confirmed connection. Empty captures explicitly report no observations in their
+declared scope; they never prove zero external dependencies. Native acceptance
+and execution authority remain unchanged, even if the producer claims a pass.
+
 ## Go APIs and validation
 
 The service package exposes `SubjectForObservation`, `CompareObservations`, `Store.Observation`,

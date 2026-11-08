@@ -26,21 +26,22 @@ type EvidenceCheck struct {
 // ExternalEvidence preserves the producer's claim and limitations. It cannot
 // confer execution authority or replace the engine's own acceptance checks.
 type ExternalEvidence struct {
-	APIVersion    string           `json:"apiVersion"`
-	Kind          string           `json:"kind"`
-	SchemaVersion int              `json:"schemaVersion"`
-	Project       string           `json:"project"`
-	Site          string           `json:"site"`
-	Producer      EvidenceProducer `json:"producer"`
-	Subject       EvidenceSubject  `json:"subject"`
-	ObservedAt    string           `json:"observedAt"`
-	ExpiresAt     string           `json:"expiresAt"`
-	Scope         string           `json:"scope"`
-	ClaimedResult string           `json:"claimedResult"`
-	Checks        []EvidenceCheck  `json:"checks"`
-	Findings      []spec.Finding   `json:"findings"`
-	Coverage      []string         `json:"coverage"`
-	Limitations   []string         `json:"limitations"`
+	APIVersion     string           `json:"apiVersion"`
+	Kind           string           `json:"kind"`
+	SchemaVersion  int              `json:"schemaVersion"`
+	Project        string           `json:"project"`
+	Site           string           `json:"site"`
+	Producer       EvidenceProducer `json:"producer"`
+	Subject        EvidenceSubject  `json:"subject"`
+	ObservedAt     string           `json:"observedAt"`
+	ExpiresAt      string           `json:"expiresAt"`
+	Scope          string           `json:"scope"`
+	ClaimedResult  string           `json:"claimedResult"`
+	Checks         []EvidenceCheck  `json:"checks"`
+	Findings       []spec.Finding   `json:"findings"`
+	Coverage       []string         `json:"coverage"`
+	Limitations    []string         `json:"limitations"`
+	RuntimeCapture *RuntimeCapture  `json:"runtimeCapture,omitempty"`
 }
 type SignedExternalEvidence struct {
 	Body      json.RawMessage `json:"body"`
@@ -118,6 +119,9 @@ func validateEvidence(body ExternalEvidence) error {
 			return errors.New("invalid or duplicate external evidence check")
 		}
 		seen[c.ID] = true
+	}
+	if body.RuntimeCapture != nil {
+		return validateRuntimeCapture(*body.RuntimeCapture, body.Scope, observed)
 	}
 	return nil
 }
@@ -215,7 +219,14 @@ func VerifyExternalEvidence(signed SignedExternalEvidence, keys []EvidenceKey, e
 	if err != nil {
 		return out, err
 	}
-	return VerifiedExternalEvidence{APIVersion: spec.APIVersion, Kind: "ExternalEvidenceVerification", Digest: digest, Integrity: "verified", Acceptance: "attached_evidence_only", Evidence: body, Notice: "Producer claim retained without strengthening it. This attachment does not change run acceptance, authorize execution, or establish live health."}, nil
+	notice := "Producer claim retained without strengthening it. This attachment does not change run acceptance, authorize execution, or establish live health."
+	if body.RuntimeCapture != nil {
+		notice += " Runtime outcomes and confidence are producer claims; attempts do not establish functional dependence or network independence. Declared DNS/TCP/UDP scope is not exhaustive protocol coverage."
+		if len(body.RuntimeCapture.Observations) == 0 {
+			notice += " No observations in declared capture scope; this is not proof of zero external dependency."
+		}
+	}
+	return VerifiedExternalEvidence{APIVersion: spec.APIVersion, Kind: "ExternalEvidenceVerification", Digest: digest, Integrity: "verified", Acceptance: "attached_evidence_only", Evidence: body, Notice: notice}, nil
 }
 
 func (s *Server) admitExternalEvidence(ctx context.Context, a Actor, b []byte) (any, error) {
