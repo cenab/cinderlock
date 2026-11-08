@@ -33,16 +33,27 @@ import (
 
 type testImageRegistry struct {
 	sync.Mutex
-	objects map[string][]byte
-	media   map[string]string
-	uploads map[string][]byte
-	blocked bool
-	serial  int
+	objects          map[string][]byte
+	media            map[string]string
+	uploads          map[string][]byte
+	blocked          bool
+	serial           int
+	mutations        int
+	gets             int
+	heads            int
+	advertisedDigest map[string]string
 }
 
 func (r *testImageRegistry) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	r.Lock()
 	defer r.Unlock()
+	if request.Method == http.MethodGet {
+		r.gets++
+	} else if request.Method == http.MethodHead {
+		r.heads++
+	} else {
+		r.mutations++
+	}
 	if r.blocked {
 		http.Error(w, "registry unavailable", http.StatusServiceUnavailable)
 		return
@@ -105,7 +116,11 @@ func (r *testImageRegistry) ServeHTTP(w http.ResponseWriter, request *http.Reque
 		}
 		w.Header().Set("Content-Type", media)
 		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-		w.Header().Set("Docker-Content-Digest", spec.Hash(data))
+		digest := r.advertisedDigest[p]
+		if digest == "" {
+			digest = spec.Hash(data)
+		}
+		w.Header().Set("Docker-Content-Digest", digest)
 		if request.Method == http.MethodGet {
 			_, _ = w.Write(data)
 		}
