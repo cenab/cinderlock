@@ -464,6 +464,12 @@ func gitOpsProfileManagedFields(desired, live *unstructured.Unstructured) bool {
 			owned = owned.Union(fields)
 			continue
 		}
+		// Omitted API defaults still affect behavior and cannot hide another writer.
+		for _, key := range []string{"f:spec", "f:data", "f:binaryData", "f:immutable"} {
+			if _, claimed := raw[key]; claimed {
+				return false
+			}
+		}
 		if !required.Intersection(fields).Empty() {
 			return false
 		}

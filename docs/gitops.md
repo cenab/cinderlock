@@ -148,9 +148,11 @@ resources. It reads only the exact names in the reviewed manifest and requires
 the controller's resource and completed-operation inventories to agree. It
 checks supplied fields, known API defaults, Deployment rollout, Argo tracking
 annotations and server-side-apply ownership, and unresolved hooks or competing
-writers. Unknown kinds, opaque lifecycle hooks, force operations, and ambiguous
-facts stay blocked. This isn't a general proof that no drift or other writer
-exists.
+writers. Other managers' spec, data, or immutability claims block even when the
+reviewed file omitted that defaulted field. Ordinary API defaults without those
+claims remain supported. Unknown kinds, opaque lifecycle hooks, force
+operations, and ambiguous facts stay blocked. This isn't a general proof that
+no drift or other writer exists.
 
 The pinned Helm tool reads the selected release's history before and after
 observation. Active or uncertain history blocks this profile. Rendering uses a

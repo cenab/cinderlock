@@ -283,6 +283,9 @@ and overlapping foreign claims block. The design required competing writers to
 block but did not specify the comparison algorithm. This avoids a second parser
 and preserves normal API defaults without treating a parent claim as proof of
 child ownership. The existing dependency becomes direct; its version is unchanged.
+An omitted default such as one replica still changes application behavior, so
+foreign spec/data/immutability claims block even outside the supplied field set.
+Ordinary defaults and controller status/revision bookkeeping remain supported.
 
 ### Separate the vendor's proposal base from the customer's accepted commit
 
