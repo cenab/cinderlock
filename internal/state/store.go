@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cenab/cinderlock/internal/spec"
 	_ "modernc.org/sqlite"
 )
 
@@ -273,6 +274,9 @@ func (s *Store) SetState(ctx context.Context, id, status string, active bool, re
 		body, err = json.Marshal(result)
 		if err != nil {
 			return err
+		}
+		if len(body) > spec.MaxDocumentBytes {
+			return errors.New("run result exceeds document size limit")
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
