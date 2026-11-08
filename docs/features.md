@@ -122,8 +122,10 @@ universal product behavior. These product mechanisms remain incomplete:
   and recovery (F39). Image staging, source proposals, and controller/source-file
   observations do not perform those actions.
 
-New endpoint, resource-budget and numeric Job changes need their own fresh
-Kubernetes receipt; earlier CPU runs do not cover later code automatically.
+The [qualification record](qualification.md) identifies the completed `8db0077`
+CPU run with endpoint, resource-budget and measured numeric Jobs. Subsequent
+changes need their own receipts; an earlier run never covers later code
+automatically.
 Qualification remains separate: real GPU/models, identity/browser/scheduled
 workflow content, additional hardware/runtime/storage profiles, and customer
 restore need approved tests and receipts (F04/F16/F33/F41). Generic Jobs supply

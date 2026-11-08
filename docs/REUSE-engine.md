@@ -90,8 +90,9 @@ matching Cinderlock executable. Native staging additionally requires the custome
 Site to admit its exact manifest digest independently of the vendor release key.
 This assumes a trusted cluster and helper image,
 and a quiescent publisher; it is not storage-snapshot consistency or malicious
-vendor attestation. Actual model verification on a live PVC still needs an
-integration run; fake-client tests do not qualify storage or API transport.
+vendor attestation. The [qualification record](qualification.md) identifies
+the CPU lab that exercised actual PVC transfer and verification. Fake-client
+tests alone do not qualify storage or API transport on another profile.
 
 An optional confined `modelSubPath` selects an application-owned directory inside
 the PVC. This supports filesystems with housekeeping directories outside the
@@ -141,5 +142,7 @@ selected kubeconfig identity and the supported resource operations. Denied,
 unavailable and inconclusive answers block execution. This is distinct from
 admission, quota and workload-identity validation. See [permission planning](permissions.md).
 
-Declared check fixtures currently block planning and execution because their
-mounting adapter is not qualified. They are never silently ignored.
+[Declared check fixtures](fixtures.md) use separately seeded, revision-bound
+PVCs and read-only acceptance mounts. Verification checks the original worker,
+volume and immutable manifest bindings before application checks; unsupported
+or unobservable provenance blocks instead of silently omitting the fixture.
