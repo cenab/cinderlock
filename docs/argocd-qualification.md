@@ -9,10 +9,16 @@ observer and denial controls.
 
 The [preparation harness](../tests/integration/argocd.py) uses the existing
 Cinderlock GitOps commands and the independent
-[minimal chart](../examples/document-qa/argocd-chart). The chart runs the locked
-Python application with its embedded `/app/models`. SQLite lives on bounded
-disk `EmptyDir` storage, so Pod replacement loses its data. This profile makes
-no persistence, model delivery, ingestion, recovery, or production claim.
+[minimal chart](../examples/document-qa/argocd-chart).
+The chart runs the locked Python application with embedded `/app/models` by
+default. SQLite lives on bounded disk `EmptyDir` storage, so Pod replacement
+loses its data. This profile makes no persistence, model delivery, ingestion,
+recovery, or production claim.
+
+The chart's optional `models.existingClaim` selects a separately prepared model
+PVC, mounted read-only at `/models`. The chart creates no PVC or model content.
+Preparation provenance and application acceptance require their separately
+authorized phases; selecting a claim does not establish either.
 
 ## Prepare on the host
 

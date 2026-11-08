@@ -2,8 +2,20 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["image"],
+  "required": ["image", "models"],
   "properties": {
-    "image": {"type": "string", "pattern": "^\\S+@sha256:[0-9a-f]{64}$"}
+    "image": {"type": "string", "pattern": "^\\S+@sha256:[0-9a-f]{64}$"},
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existingClaim"],
+      "properties": {
+        "existingClaim": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^(|[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)$"
+        }
+      }
+    }
   }
 }

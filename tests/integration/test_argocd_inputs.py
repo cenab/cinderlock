@@ -375,12 +375,35 @@ class PlannedInputsTest(unittest.TestCase):
             environment = dict(os.environ, HELM_PLUGINS=temporary, HELM_CACHE_HOME=temporary,
                                HELM_CONFIG_HOME=temporary, HELM_DATA_HOME=temporary, KUBECONFIG=str(kubeconfig))
             argv = [helm, "template", "document-qa", str(ARGO.PROJECT / "examples/document-qa/argocd-chart"),
-                    "--namespace", "cinderlock-argocd-synthetic", "--kubeconfig", str(kubeconfig), "--set-string"]
+                    "--namespace", "cinderlock-argocd-synthetic", "--kubeconfig", str(kubeconfig),
+                    "--kube-context", "kind-cinderlock-synthetic", "--set-string"]
             rendered = subprocess.run([*argv, "image=" + image], capture_output=True, text=True, env=environment, timeout=30)
             self.assertEqual(rendered.returncode, 0, rendered.stderr)
+            # The default bytes are part of the reviewed stateless source binding.
+            self.assertEqual(ARGO.sha256(rendered.stdout.encode()),
+                             "sha256:773766c46c7c8a6dd779c84f2a481b92973d122e373580561c38f328aa116c88")
             self.assertEqual(sorted(re.findall(r"(?m)^kind: (\S+)$", rendered.stdout)), ["ConfigMap", "Deployment", "Service"])
             self.assertEqual(re.findall(r'(?m)^\s+image: "([^"\n]+)"$', rendered.stdout), [image])
             self.assertNotRegex(rendered.stdout, r"(?m)\b(?:initContainers|ephemeralContainers|lifecycle|persistentVolumeClaim|helm\.sh/hook):")
+            selected = subprocess.run([*argv, "image=" + image, "--set-string", "models.existingClaim=prepared-model-v1"],
+                                      capture_output=True, text=True, env=environment, timeout=30)
+            self.assertEqual(selected.returncode, 0, selected.stderr)
+            mount = "            - name: models\n              mountPath: /models\n              readOnly: true\n"
+            volume = ('        - name: models\n          persistentVolumeClaim:\n'
+                      '            claimName: "prepared-model-v1"\n            readOnly: true\n')
+            self.assertIn(mount, selected.stdout)
+            self.assertIn(volume, selected.stdout)
+            self.assertIn("  MODEL_DIR: /models\n", selected.stdout)
+            self.assertEqual(selected.stdout.replace(mount, "").replace(volume, "").replace(
+                "  MODEL_DIR: /models\n", "  MODEL_DIR: /app/models\n"), rendered.stdout)
+            for models in (None, {"existingClaim": None}, {"existingClaim": False},
+                           {"existingClaim": "../claim"}, {"existingClaim": "BadClaim"},
+                           {"existingClaim": "a" * 254}, {"existingClaim": "model", "namespace": "other"}):
+                with self.subTest(models=models):
+                    rejected = subprocess.run([*argv, "image=" + image, "--set-json", "models=" + json.dumps(models)],
+                                              capture_output=True, text=True, env=environment, timeout=30)
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn("models", rejected.stderr)
             for unpinned in ("", "registry.customer/application:latest"):
                 rejected = subprocess.run([*argv, "image=" + unpinned], capture_output=True, text=True, env=environment, timeout=30)
                 self.assertNotEqual(rejected.returncode, 0)
