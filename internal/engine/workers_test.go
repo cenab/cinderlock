@@ -225,7 +225,7 @@ func TestAcceptanceWorkerIsJournaledAndRecoveryWaitsForIt(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	result := e.check(context.Background(), "worker-run", check, v)
+	result := e.check(context.Background(), "worker-run", check, v, nil)
 	if result.Status != "blocked" {
 		t.Fatalf("unobservable acceptance worker passed: %#v", result)
 	}
@@ -249,7 +249,7 @@ func TestAcceptanceWorkerIsJournaledAndRecoveryWaitsForIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.ClearActions()
-	if result := e.check(context.Background(), "worker-run", check, v); result.Status != "pass" {
+	if result := e.check(context.Background(), "worker-run", check, v, nil); result.Status != "pass" {
 		t.Fatalf("recorded original check completion rejected: %#v", result)
 	}
 	for _, action := range client.Actions() {

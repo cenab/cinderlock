@@ -155,7 +155,7 @@ func TestAcceptanceFixturesAreVerifiedMountedReadOnlyAndJournaled(t *testing.T) 
 			e, client, p, v, _ := fixtureAcceptanceRun(t, kind)
 			ctx := context.Background()
 			check := p.Checks[0]
-			result := e.check(ctx, "fixture-run", check, v)
+			result := e.check(ctx, "fixture-run", check, v, nil)
 			if result.Status != "pass" {
 				t.Fatalf("declared fixture did not reach acceptance: %#v", result)
 			}
@@ -194,7 +194,7 @@ func TestAcceptanceFixturesAreVerifiedMountedReadOnlyAndJournaled(t *testing.T) 
 				t.Fatal(err)
 			}
 			client.ClearActions()
-			if repeat := e.check(ctx, "fixture-run", check, v); repeat.Status != "pass" {
+			if repeat := e.check(ctx, "fixture-run", check, v, nil); repeat.Status != "pass" {
 				t.Fatalf("recorded acceptance rejected: %#v", repeat)
 			}
 			for _, action := range client.Actions() {
@@ -211,7 +211,7 @@ func TestFixtureAcceptanceRechecksActualBytesBeforeRunningWorkflow(t *testing.T)
 	if err := os.WriteFile(filepath.Join(root, "artifact/document.txt"), []byte("corrupted bytes!"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result := e.check(context.Background(), "fixture-run", p.Checks[0], v)
+	result := e.check(context.Background(), "fixture-run", p.Checks[0], v, nil)
 	if result.Status != "fail" {
 		t.Fatalf("changed fixture bytes reached application acceptance: %#v", result)
 	}
@@ -275,7 +275,7 @@ func TestFixtureIdentityAndSharingFailBeforeNewWorkers(t *testing.T) {
 				v.Digest = spec.Hash([]byte("other bundle"))
 			}
 			client.ClearActions()
-			result := e.check(ctx, "fixture-run", p.Checks[0], v)
+			result := e.check(ctx, "fixture-run", p.Checks[0], v, nil)
 			if result.Status != "blocked" {
 				t.Fatalf("untrusted fixture passed: %#v", result)
 			}
@@ -301,7 +301,7 @@ func TestFixtureWorkerCannotAcceptChangedVolumeOrResumeWithoutFreshVerification(
 				}
 				return false, nil, nil
 			})
-			if result := e.check(ctx, "fixture-run", check, v); result.Status != "blocked" {
+			if result := e.check(ctx, "fixture-run", check, v, nil); result.Status != "blocked" {
 				t.Fatalf("lost application response accepted: %#v", result)
 			}
 			lostPoll = false
@@ -351,7 +351,7 @@ func TestLostOrRunningFixtureVerifierNeverImpliesMainNotStarted(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	if result := e.check(ctx, "fixture-run", check, v); result.Status != "blocked" {
+	if result := e.check(ctx, "fixture-run", check, v, nil); result.Status != "blocked" {
 		t.Fatalf("unobserved fixture helper accepted: %#v", result)
 	}
 	if err := e.recoveryQuiescent(ctx, "fixture-run"); spec.ExitCode(err) != 13 {

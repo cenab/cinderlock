@@ -287,7 +287,7 @@ func (e *Engine) waitDeployment(ctx context.Context, name string, seconds int64,
 	}
 }
 
-func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundle.Verified) spec.CheckResult {
+func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundle.Verified, beforeStart func() (spec.TargetSnapshot, error)) spec.CheckResult {
 	start := time.Now()
 	result := spec.CheckResult{ID: c.ID, Domain: c.Domain, Required: c.Required, Status: "blocked"}
 	if result.Domain == "" {
@@ -423,6 +423,12 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	if !errors.Is(priorErr, sql.ErrNoRows) {
 		result.Reason = priorErr.Error()
 		return result
+	}
+	if beforeStart != nil {
+		if _, err := beforeStart(); err != nil {
+			result.Reason = err.Error()
+			return result
+		}
 	}
 	intent, err = e.Store.Intent(ctx, runID, stepID, checkIntent{Type: "check", Check: c, Fixtures: fixtures}, jobName(runID, stepID))
 	if err != nil {

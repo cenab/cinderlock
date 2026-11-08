@@ -89,7 +89,7 @@ func TestAuthoredJobsUseDeclaredBudget(t *testing.T) {
 				}
 			} else {
 				check := p.Checks[0]
-				result := e.check(ctx, "worker-run", check, v)
+				result := e.check(ctx, "worker-run", check, v, nil)
 				if result.Status != "pass" {
 					t.Fatalf("authored check failed: %+v", result)
 				}
@@ -158,7 +158,7 @@ func TestWorkerBudgetBlocksPlanApplyResumeAndDirectEffects(t *testing.T) {
 				_, err = e.Resume(ctx, "invalid-budget", v, policy, nil, true)
 				assertRejected(err)
 				if owner == "check" {
-					result := e.check(ctx, "invalid-budget", p.Checks[0], v)
+					result := e.check(ctx, "invalid-budget", p.Checks[0], v, nil)
 					if result.Status != "blocked" || !strings.Contains(result.Reason, want) {
 						t.Fatalf("invalid check reached execution: %+v", result)
 					}
@@ -241,7 +241,7 @@ func TestChangedCheckBudgetIntentCannotSatisfyResume(t *testing.T) {
 			completeWorkers(client)
 			ctx := context.Background()
 			check := p.Checks[0]
-			if result := e.check(ctx, "worker-run", check, v); result.Status != "pass" {
+			if result := e.check(ctx, "worker-run", check, v, nil); result.Status != "pass" {
 				t.Fatalf("original check failed: %+v", result)
 			}
 			attempt, err := e.Store.LatestOperation(ctx, "worker-run", checkStepID(check.ID))
@@ -265,7 +265,7 @@ func TestChangedCheckBudgetIntentCannotSatisfyResume(t *testing.T) {
 			if err := e.resumeCheck(ctx, p, attempt); spec.ExitCode(err) != 13 || !strings.Contains(err.Error(), "intent differs from signed plan check") {
 				t.Fatalf("changed check intent satisfied original check: %v", err)
 			}
-			if result := e.check(ctx, "worker-run", changed.Check, v); result.Status != "blocked" || !strings.Contains(result.Reason, "intent differs") {
+			if result := e.check(ctx, "worker-run", changed.Check, v, nil); result.Status != "blocked" || !strings.Contains(result.Reason, "intent differs") {
 				t.Fatalf("changed check reused original completion: %+v", result)
 			}
 			if len(client.Actions()) != 0 {
@@ -321,7 +321,7 @@ func TestFixedHTTPCheckKeepsBudgetAndOptionalTimeout(t *testing.T) {
 	check := p.Checks[0]
 	check.Type, check.Script, check.Command, check.TimeoutSeconds = "http", nil, nil, 0
 	check.URL, check.ExpectedStatus = "http://api.internal/ready", 200
-	result := e.check(context.Background(), "worker-run", check, v)
+	result := e.check(context.Background(), "worker-run", check, v, nil)
 	if result.Status != "pass" {
 		t.Fatalf("fixed HTTP check failed: %+v", result)
 	}

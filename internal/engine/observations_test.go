@@ -71,7 +71,7 @@ func TestCheckObservationsRejectsBudgetDespiteSuccessfulJob(t *testing.T) {
 				t.Fatal(err)
 			}
 			e.PodLogReader = func(context.Context, string) ([]byte, error) { return output, nil }
-			result := e.check(context.Background(), "worker-run", check, v)
+			result := e.check(context.Background(), "worker-run", check, v, nil)
 			if result.Status != "fail" || result.Observations == nil || result.Observations.Report == nil || *result.Observations.Report.Samples[tc.sample].Metrics[tc.metric].Value != tc.value {
 				t.Fatalf("exit-zero Job with failing sample must retain failure and values, got %#v", result)
 			}
@@ -90,7 +90,7 @@ func TestCheckObservationsRetainsRecordedResultAfterReopen(t *testing.T) {
 	}
 	e.PodLogReader = func(context.Context, string) ([]byte, error) { return output, nil }
 	ctx := context.Background()
-	result := e.check(ctx, "worker-run", check, v)
+	result := e.check(ctx, "worker-run", check, v, nil)
 	if result.Status != "pass" || result.Observations == nil || result.Observations.Report == nil || *result.Observations.Report.Samples[1].Metrics[1].Value != 50 {
 		t.Fatalf("valid samples not retained: %#v", result)
 	}
@@ -112,7 +112,7 @@ func TestCheckObservationsRetainsRecordedResultAfterReopen(t *testing.T) {
 		return nil, nil
 	}
 	client.ClearActions()
-	if resumed := e.check(ctx, "worker-run", check, v); mustDigest(t, resumed) != mustDigest(t, result) {
+	if resumed := e.check(ctx, "worker-run", check, v, nil); mustDigest(t, resumed) != mustDigest(t, result) {
 		t.Fatalf("resume changed the original observation result: %#v", resumed)
 	}
 	for _, action := range client.Actions() {
@@ -129,7 +129,7 @@ func TestResumeCheckCollectsOriginalCompletedObservations(t *testing.T) {
 	check.ObservationContract = observationContract()
 	ctx := context.Background()
 	e.PodLogReader = func(context.Context, string) ([]byte, error) { return nil, errors.New("SYNTHETIC-SECRET") }
-	result := e.check(ctx, "worker-run", *check, v)
+	result := e.check(ctx, "worker-run", *check, v, nil)
 	if result.Status != "blocked" || strings.Contains(result.Reason, "SYNTHETIC-SECRET") {
 		t.Fatalf("transport uncertainty was not safely blocked: %#v", result)
 	}
@@ -158,7 +158,7 @@ func TestResumeCheckCollectsOriginalCompletedObservations(t *testing.T) {
 		t.Fatal("failed observations were reread")
 		return nil, nil
 	}
-	if resumed := e.check(ctx, "worker-run", *check, v); mustDigest(t, resumed) != mustDigest(t, stored) {
+	if resumed := e.check(ctx, "worker-run", *check, v, nil); mustDigest(t, resumed) != mustDigest(t, stored) {
 		t.Fatalf("known failed assertion changed on resume: %#v", resumed)
 	}
 }
@@ -172,7 +172,7 @@ func TestCheckObservationsBlocksMissingAndMalformedOutput(t *testing.T) {
 		p.Checks[0] = check
 		e.PodLogReader = func(context.Context, string) ([]byte, error) { return []byte(output), nil }
 		ctx := context.Background()
-		result := e.check(ctx, "worker-run", check, v)
+		result := e.check(ctx, "worker-run", check, v, nil)
 		if result.Status != "blocked" || strings.Contains(result.Reason, "SYNTHETIC-SECRET") {
 			t.Fatalf("invalid output did not safely block: %#v", result)
 		}
@@ -195,7 +195,7 @@ func TestResumeObservationsRejectsSourceMutationBeforeReadingLogs(t *testing.T) 
 			check.ObservationContract = observationContract()
 			e.PodLogReader = func(context.Context, string) ([]byte, error) { return nil, errors.New("transport unavailable") }
 			ctx := context.Background()
-			result := e.check(ctx, "worker-run", *check, v)
+			result := e.check(ctx, "worker-run", *check, v, nil)
 			if result.Status != "blocked" || result.Observations == nil {
 				t.Fatalf("source was not captured: %#v", result)
 			}
@@ -367,7 +367,7 @@ func TestResumeRetainsObservedAcceptanceInRunResult(t *testing.T) {
 			t.Fatal(err)
 		}
 		e.PodLogReader = func(context.Context, string) ([]byte, error) { return nil, errors.New("transport unavailable") }
-		initial := e.check(ctx, runID, p.Checks[0], v)
+		initial := e.check(ctx, runID, p.Checks[0], v, nil)
 		if initial.Status != "blocked" {
 			t.Fatalf("expected interrupted observation collection: %#v", initial)
 		}
@@ -433,7 +433,7 @@ func TestObservationCaptureRejectsIdentityAndOutputChanges(t *testing.T) {
 			}
 			return output, nil
 		}
-		result := e.check(ctx, "worker-run", *check, v)
+		result := e.check(ctx, "worker-run", *check, v, nil)
 		if result.Status != "blocked" || result.Observations == nil || result.Observations.Report != nil {
 			t.Fatalf("changing or malformed evidence was accepted: %#v", result)
 		}
@@ -474,7 +474,7 @@ func TestPrerequisiteRefreshPreservesObservedSamplesOnLaterFailure(t *testing.T)
 		t.Fatal(err)
 	}
 	e.PodLogReader = func(context.Context, string) ([]byte, error) { return output, nil }
-	initial := e.check(context.Background(), runID, p.Checks[0], v)
+	initial := e.check(context.Background(), runID, p.Checks[0], v, nil)
 	if initial.Status != "pass" {
 		t.Fatalf("original numeric check did not pass: %#v", initial)
 	}
@@ -532,7 +532,7 @@ func TestResumeRetainsOptionalNumericFailureWithoutRepeatingWork(t *testing.T) {
 			if err := e.Store.Complete(ctx, attempt, "complete", nil); err != nil {
 				t.Fatal(err)
 			}
-			required := e.check(ctx, runID, p.Checks[0], v)
+			required := e.check(ctx, runID, p.Checks[0], v, nil)
 			report := observationReport(t, optional.ObservationContract)
 			outside := int64(101)
 			report.Samples[1].Metrics[1].Value = &outside
@@ -541,7 +541,7 @@ func TestResumeRetainsOptionalNumericFailureWithoutRepeatingWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			e.PodLogReader = func(context.Context, string) ([]byte, error) { return output, nil }
-			failed := e.check(ctx, runID, optional, v)
+			failed := e.check(ctx, runID, optional, v, nil)
 			if required.Status != "pass" || failed.Status != "fail" || failed.Observations == nil {
 				t.Fatal("fixture did not complete required work and fail only the optional bounds", required, failed)
 			}

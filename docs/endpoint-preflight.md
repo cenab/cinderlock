@@ -80,6 +80,11 @@ pull credentials are current. Planning never starts a probe Job.
 Between individual prerequisite workers and after a prerequisite wait, the
 engine rechecks approval, policy, coordination, target state, and secret bindings
 before following work. URLs remain literal through Kubernetes argument handling.
+Each new prerequisite worker gets that guard immediately before its intent.
+Reusing completed prerequisite evidence checks the original recipe, worker
+identity and termination, plus original entitlement freshness when required.
+The following application effect then gets one fresh full guard; final
+acceptance repeats coordination, policy, authorization and checkpoint validation.
 Resume reuses the original Job UID and recipe; failed or uncertain workers are
 never blindly repeated. Resolve the original worker and use a separately
 authorized supported recovery or new attempt when needed. Changed material

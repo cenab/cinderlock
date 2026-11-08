@@ -62,9 +62,6 @@ func mergeCheckResults(result *spec.RunResult, checks []spec.CheckResult) {
 func (e *Engine) prerequisiteChecks(ctx context.Context, p spec.Plan, v *bundle.Verified, runID string, boundary func() (spec.TargetSnapshot, error)) ([]spec.CheckResult, error) {
 	results := []spec.CheckResult{}
 	for _, id := range prerequisiteCheckIDs(p, v) {
-		if _, err := boundary(); err != nil {
-			return results, err
-		}
 		var check *spec.Check
 		for _, candidate := range p.Checks {
 			if candidate.ID == id && (candidate.Required || slices.Contains(p.RequiredChecks, id)) {
@@ -76,7 +73,15 @@ func (e *Engine) prerequisiteChecks(ctx context.Context, p spec.Plan, v *bundle.
 		if check == nil {
 			return results, spec.Err(10, "required prerequisite check %s is absent from the signed recipe", id)
 		}
-		result := e.check(ctx, runID, *check, v)
+		var boundaryErr error
+		result := e.check(ctx, runID, *check, v, func() (spec.TargetSnapshot, error) {
+			var snapshot spec.TargetSnapshot
+			snapshot, boundaryErr = boundary()
+			return snapshot, boundaryErr
+		})
+		if boundaryErr != nil {
+			return results, boundaryErr
+		}
 		results = append(results, result)
 		if result.Status != "pass" {
 			code := 15

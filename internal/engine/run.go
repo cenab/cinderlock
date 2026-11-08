@@ -232,10 +232,6 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		if ctx.Err() != nil {
 			return fail(spec.Err(17, "stop requested before next operation"))
 		}
-		before, err := checkBoundary()
-		if err != nil {
-			return fail(err)
-		}
 		for _, dep := range o.DependsOn {
 			if !completed[dep] {
 				return fail(spec.Err(10, "operation dependency not completed: %s", dep))
@@ -244,6 +240,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		if !slices.Contains(e.Site.Spec.AllowedActions, o.Type) || !slices.Contains(policy.Spec.AllowedActions, o.Type) {
 			return fail(spec.Err(16, "operation capability no longer permitted"))
 		}
+		var before spec.TargetSnapshot
 		if o.Type != "import" && hasPrerequisites {
 			checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary)
 			if err != nil {
@@ -251,10 +248,10 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 				return fail(err)
 			}
 			mergeCheckResults(&result, checks)
-			before, err = checkBoundary()
-			if err != nil {
-				return fail(err)
-			}
+		}
+		before, err = checkBoundary()
+		if err != nil {
+			return fail(err)
 		}
 		external := ""
 		if jobOperation(o.Type) && !(o.Type == "seed" && len(o.Command) == 0) {
@@ -393,22 +390,19 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			mergeCheckResults(&result, []spec.CheckResult{r})
 			continue
 		}
-		if _, err := checkBoundary(); err != nil {
-			return fail(err)
-		}
 		if hasPrerequisites {
 			if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary); err != nil {
 				recordPrerequisiteFailure(&result, checks)
 				return fail(err)
 			}
-			if _, err := checkBoundary(); err != nil {
-				return fail(err)
-			}
+		}
+		if _, err := checkBoundary(); err != nil {
+			return fail(err)
 		}
 		if err := e.clusterRecord(ctx, result.RunID, result.PlanDigest, "verifying", check); err != nil {
 			return fail(err)
 		}
-		r := e.check(ctx, result.RunID, check, v)
+		r := e.check(ctx, result.RunID, check, v, nil)
 		mergeCheckResults(&result, []spec.CheckResult{r})
 		if r.Status == "blocked" {
 			attempt, err := e.Store.LatestOperation(ctx, result.RunID, checkStepID(check.ID))
@@ -438,13 +432,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		recordPrerequisiteFailure(&result, checks)
 		return fail(err)
 	}
-	if err := e.checkPlan(ctx, p, v, policy, false); err != nil {
-		return fail(err)
-	}
-	if _, err := e.authorize(p, policy, a, approved); err != nil {
-		return fail(err)
-	}
-	if _, err := e.currentCheckpoint(ctx, result.RunID, p); err != nil {
+	if _, err := checkBoundary(); err != nil {
 		return fail(err)
 	}
 	result.State = "succeeded"
