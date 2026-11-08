@@ -153,9 +153,14 @@ Chart rendering uses the observed install/upgrade context and is restricted to
 supported namespaced resource kinds and declared digest-pinned images. A plan
 binds the rendered desired-state digest. Execution uses frozen validated
 objects, so Helm cannot execute a different branch of the original templates
-after validation. Common lookup, nondeterministic template, and hook patterns
-are rejected. Inspection remains a bounded supported-chart profile, not a
-complete analyzer of all Helm template behavior. Values apply
+after validation. Template syntax is inspected without execution, including
+unused definitions and nested calls. Dynamic template evaluation and the pinned
+toolchain's known environment-dependent, lookup, and random functions are
+rejected; literal text containing their names remains data. Rendered lifecycle
+hooks are rejected. Archive and syntax limits fail closed. This is a bounded
+root-chart profile with canonical forward-slash archive paths; bundled subcharts
+and arbitrary Helm extensions need separate inspection support.
+Values apply
 in the order of bundled values, customer Site overrides, then generated image
 bindings. Required HTTP and command checks execute as namespaced Jobs, so they
 observe the workload network rather than only the operator workstation.

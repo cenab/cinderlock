@@ -140,11 +140,12 @@ func (e *Engine) helmFiles(v *bundle.Verified) (string, []string, func(), error)
 		cleanup()
 		return "", nil, nil, err
 	}
-	if err := inspectChart(chart); err != nil {
+	metadata, _, err := chartSource(chart, v.Index.Lock.Release.Metadata.Version)
+	if err != nil {
 		cleanup()
 		return "", nil, nil, err
 	}
-	if _, _, err := chartSource(chart, v.Index.Lock.Release.Metadata.Version); err != nil {
+	if err := inspectChart(chart, metadata["name"].(string)); err != nil {
 		cleanup()
 		return "", nil, nil, err
 	}
@@ -227,7 +228,7 @@ func setValuePath(values map[string]any, path, value string) error {
 	return nil
 }
 
-func inspectChart(path string) error {
+func inspectChart(path, chartName string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -238,14 +239,21 @@ func inspectChart(path string) error {
 		return fmt.Errorf("chart must be packaged tgz: %w", err)
 	}
 	defer gz.Close()
-	tr := tar.NewReader(io.LimitReader(gz, 64<<20))
+	stream := &io.LimitedReader{R: gz, N: 64<<20 + 1}
+	tr := tar.NewReader(stream)
 	for {
 		h, err := tr.Next()
+		if stream.N == 0 {
+			return spec.Err(10, "chart exceeds supported uncompressed size")
+		}
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
 			return err
+		}
+		if !spec.SafePath(strings.TrimSuffix(h.Name, "/")) {
+			return spec.Err(10, "chart archive paths must be canonical forward-slash paths")
 		}
 		if h.Size > 4<<20 {
 			return errors.New("chart member exceeds limit")
@@ -260,8 +268,17 @@ func inspectChart(path string) error {
 		if err != nil {
 			return err
 		}
-		if strings.Contains(string(b), "lookup ") || strings.Contains(string(b), "lookup(") || strings.Contains(string(b), "randAlpha") || strings.Contains(string(b), "randNumeric") || strings.Contains(string(b), "now ") || strings.Contains(string(b), "helm.sh/hook") {
-			return spec.Err(10, "chart uses unsupported lookup/nondeterministic rendering or lifecycle hooks")
+		if stream.N == 0 || int64(len(b)) != h.Size {
+			return spec.Err(10, "chart exceeds supported size or contains a truncated member")
+		}
+		_, member, _ := strings.Cut(h.Name, "/")
+		if strings.HasPrefix(member, "charts/") {
+			return spec.Err(10, "bundled subcharts require another supported template-inspection profile")
+		}
+		if strings.HasPrefix(member, "templates/") {
+			if err := inspectChartTemplate(chartName+"/"+member, string(b)); err != nil {
+				return err
+			}
 		}
 	}
 }
