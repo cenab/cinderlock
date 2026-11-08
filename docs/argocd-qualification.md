@@ -15,25 +15,31 @@ no persistence, model delivery, ingestion, recovery, or production claim.
 
 Run preparation only on the host with the admitted application OCI layout tar,
 the actual Cinderlock binary, actual Helm, and the selected disposable lab
-available. Every selection is explicit:
+available. Set `ADMITTED_HELM_DIGEST` from an independent admitted tool record
+for the selected platform and executable. It must include `sha256:` followed
+by exactly 64 lowercase hexadecimal digits. Do not calculate a caller's
+admission value from the selected executable or a tool found on `PATH`.
+Every selection is explicit:
 
 ```sh
 python3 tests/integration/argocd.py \
   --binary /private/tools/cinderlock \
-  --helm /Users/batu/Developer/cinderlock/.local/tools/qualified/bin/helm \
+  --helm /private/tools/helm \
+  --helm-digest "$ADMITTED_HELM_DIGEST" \
   --application-oci /private/inputs/application.tar \
   --platform linux/arm64 \
   --workdir /private/qualification/argocd-inputs \
-  --kubeconfig /Users/batu/Developer/cinderlock/.local/kubeconfig \
+  --kubeconfig /private/lab/kubeconfig \
   --context kind-cinderlock-test \
   --registry 127.0.0.1:5005
 ```
 
-Replace the tool, OCI, platform, workdir, and registry selections with your
-admitted local inputs. This lab admits patched Helm `v4.3.1+cinderlock.1+gc0d08d0`
-with SHA-256 `35ce1958b1f9d3e85d92b7ad2846556be9bd400def6efed2f05690d63ac5e7d8`.
-The harness requires absolute executable paths, rejects a different Helm
-digest before creating output, and never picks a Helm command from `PATH`.
+Replace the example paths and selections with your admitted local inputs.
+The kubeconfig must be an absolute existing regular file without symlinks.
+Select a `kind-cinderlock-*` context with a lowercase alphanumeric lab suffix
+separated by hyphens. The harness requires absolute executable paths and an
+explicit admitted Helm digest. Missing, malformed, or mismatched digests fail
+before output or tool invocation. It never selects Helm from `PATH`.
 The workdir's parent must exist without symlink
 ancestors. Preparation refuses an existing workdir. It generates a fresh
 `cinderlock-argocd-*` target namespace name, or accepts an explicit name under
@@ -97,11 +103,16 @@ ConfigMap.
 
 ## Complete the live bindings separately
 
-Run all live actions separately. Inspect `receipt.json` and `future-argv.json`
-before running their individual argument arrays. They do not contain shell
-fragments and are not an automatic executor. Create the fresh namespace,
-inspect the target, and preserve the original preparation Site. Write a new
-private `site-bound.yaml` with the same Site name, namespace, profile, and
+Run all live actions separately as the lab operator. A kubeconfig path and
+context name do not prove cluster ownership. Separately verify the lab's
+original cluster UID against its independent record before creating the fresh
+namespace. Retain the fresh namespace's original UID and recheck both original
+UID guards before later mutations.
+
+Inspect `receipt.json` and `future-argv.json` before running their individual
+argument arrays. They do not contain shell fragments and are not an automatic
+executor. Inspect the target and preserve the original preparation Site. Write
+a new private `site-bound.yaml` with the same Site name, namespace, profile, and
 explicit selections, adding `spec.clusterID` from the real snapshot's
 `targetID` and `spec.namespaceUID` from its real `namespaceUID`. Verify the
 snapshot's `siteID` matches the selected Site name and that the namespace UID
@@ -164,7 +175,7 @@ source/data recovery. Those require separate supported, authorized workflows.
 Run the focused tests on a host that permits loopback listeners:
 
 ```sh
-CINDERLOCK_TEST_HELM=/Users/batu/Developer/cinderlock/.local/tools/qualified/bin/helm \
+CINDERLOCK_TEST_HELM=/private/tools/helm \
   python3 -m unittest discover -s tests/integration -p test_argocd_inputs.py
 ```
 
@@ -172,6 +183,9 @@ The retained HTTP/Git test must clone the advertised accepted commit and read
 back the exact exported fixture bytes. A sandbox listener denial is an
 unavailable capability, never a passing transport test. The other tests use
 actual temporary Git repositories, real local Helm rendering, archive safety
-negatives, and pre-effect target refusals. They do not substitute for the
-actual CLI/Helm host preparation, image import, controller reconciliation, or
-live qualification.
+negatives, and pre-effect target refusals. Rendering uses a private empty
+kubeconfig without contacting a cluster. Synthetic tool and kubeconfig fixtures
+are used only for input validation before effects; no client reads those
+synthetic configs, and they establish no target ownership. These checks do not
+substitute for actual CLI/Helm host preparation, image import, controller
+reconciliation, or live qualification.

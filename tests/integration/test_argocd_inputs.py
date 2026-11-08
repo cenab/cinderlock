@@ -88,23 +88,69 @@ class SourceTransportTest(unittest.TestCase):
 
 
 class PreparationBoundaryTest(unittest.TestCase):
-    def test_ambient_or_unadmitted_tools_are_refused_before_output(self):
+    def test_explicit_temporary_lab_config_and_admitted_tool_need_no_personal_path(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary).resolve()
             tool, kubeconfig, image = work / "tool", work / "config", work / "image.tar"
-            tool.write_text("#!/bin/sh\nexit 0\n")
+            marker = work / "tool-invoked"
+            tool.write_text("#!/bin/sh\nprintf invoked > " + shlex.quote(str(marker)) + "\n")
+            tool.chmod(0o700)
+            kubeconfig.write_text("synthetic input validation fixture; never read by a client\n")
+            image.write_bytes(b"synthetic OCI wrapper; input validation never extracts it")
+            values = dict(binary=str(tool), helm=str(tool), helm_digest=ARGO.file_digest(tool),
+                application_oci=str(image), platform="linux/arm64", workdir=str(work / "new"),
+                kubeconfig=str(kubeconfig), context="kind-cinderlock-portable", registry="127.0.0.1:5005",
+                namespace="cinderlock-argocd-synthetic")
+            selected_work, selected_image, tools = ARGO.validate_inputs(SimpleNamespace(**values))
+            self.assertEqual(selected_work, work / "new")
+            self.assertEqual(selected_image, image)
+            self.assertEqual(tools["helm"], dict(path=str(tool), digest=values["helm_digest"]))
+            self.assertFalse(selected_work.exists())
+            self.assertFalse(marker.exists())
+
+    def test_cli_requires_an_explicit_admitted_helm_digest(self):
+        argv = []
+        for name in ("binary", "helm", "application-oci", "platform", "workdir", "kubeconfig", "context", "registry"):
+            argv += ["--" + name, "synthetic"]
+        with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+            ARGO.parser().parse_args(argv)
+
+    def test_ambient_or_unadmitted_tools_are_refused_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary).resolve()
+            tool, kubeconfig, image = work / "helm", work / "config", work / "image.tar"
+            marker = work / "tool-invoked"
+            tool.write_text("#!/bin/sh\nprintf invoked > " + shlex.quote(str(marker)) + "\n")
             tool.chmod(0o700)
             kubeconfig.write_text("synthetic configuration; never read by a client\n")
             image.write_bytes(b"synthetic OCI wrapper; validation stops before extraction")
-            values = dict(binary=str(tool), helm=str(tool), application_oci=str(image), platform="linux/arm64",
-                workdir=str(work / "new"), kubeconfig=str(kubeconfig), context=ARGO.CONTEXT,
+            values = dict(binary=str(tool), helm=str(tool), helm_digest=ARGO.file_digest(tool),
+                application_oci=str(image), platform="linux/arm64",
+                workdir=str(work / "new"), kubeconfig=str(kubeconfig), context="kind-cinderlock-synthetic",
                 registry="127.0.0.1:5005", namespace="cinderlock-argocd-synthetic")
-            with patch.object(ARGO, "KUBECONFIG", str(kubeconfig)):
-                for change, reason in ((dict(helm="helm"), "absolute"),
-                                       (dict(binary="cinderlock"), "absolute"), ({}, "admitted patched")):
-                    with self.subTest(change=change), self.assertRaisesRegex(ValueError, reason):
-                        ARGO.validate_inputs(SimpleNamespace(**dict(values, **change)))
+            for change, reason in ((dict(helm="helm"), "absolute"), (dict(binary="helm"), "absolute"),
+                    (dict(helm_digest=None), "--helm-digest"), (dict(helm_digest=""), "helm-digest"),
+                    (dict(helm_digest=values["helm_digest"][7:]), "helm-digest"),
+                    (dict(helm_digest="SHA256:" + "a" * 64), "helm-digest"),
+                    (dict(helm_digest="sha256:" + "A" * 64), "helm-digest"),
+                    (dict(helm_digest="sha256:" + "g" * 64), "helm-digest"),
+                    (dict(helm_digest="sha256:" + "a" * 63), "helm-digest"),
+                    (dict(helm_digest="sha256:" + "a" * 65), "helm-digest"),
+                    (dict(helm_digest=" " + values["helm_digest"]), "helm-digest"),
+                    (dict(helm_digest=values["helm_digest"] + "\n"), "helm-digest"),
+                    (dict(helm_digest=ARGO.sha256(b"different synthetic tool")), "admitted digest")):
+                with self.subTest(change=change):
+                    argv = [sys.executable, str(Path(ARGO.__file__))]
+                    for key, value in dict(values, **change).items():
+                        if value is not None:
+                            argv += ["--" + key.replace("_", "-"), str(value)]
+                    result = subprocess.run(argv, capture_output=True, text=True,
+                                            env=dict(os.environ, PATH=str(work)), timeout=10)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(reason, result.stderr)
+                    self.assertEqual(result.stdout, "")
                     self.assertFalse((work / "new").exists())
+                    self.assertFalse(marker.exists())
 
     def test_unsafe_targets_and_workdirs_fail_before_tools_or_output(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -113,15 +159,30 @@ class PreparationBoundaryTest(unittest.TestCase):
             tool = work / "tool"
             tool.write_text("#!/bin/sh\nprintf invoked > " + shlex.quote(str(marker)) + "\n")
             tool.chmod(0o700)
+            kubeconfig = work / "config"
+            kubeconfig.write_text("synthetic input validation fixture; never read by a client\n")
+            config_link = work / "config-link"
+            config_link.symlink_to(kubeconfig)
+            image = work / "image.tar"
+            image.write_bytes(b"synthetic OCI wrapper; validation stops before extraction")
             existing = work / "existing"
             existing.mkdir()
             linked = work / "linked"
             linked.symlink_to(existing, target_is_directory=True)
-            defaults = dict(binary=tool, helm=tool, application_oci=work / "unused.tar", platform="linux/amd64",
-                workdir=work / "new", kubeconfig=ARGO.KUBECONFIG, context=ARGO.CONTEXT,
+            defaults = dict(binary=tool, helm=tool, helm_digest=ARGO.file_digest(tool), application_oci=image, platform="linux/amd64",
+                workdir=work / "new", kubeconfig=kubeconfig, context="kind-cinderlock-synthetic",
                 registry="127.0.0.1:5001/offline", namespace="cinderlock-argocd-synthetic")
             for changes, reason in ((dict(context="production"), "disposable"),
-                    (dict(kubeconfig="/customer/config"), "disposable"),
+                    (dict(context="default"), "disposable"), (dict(context=""), "disposable"),
+                    (dict(context="kind-cinderlock-"), "disposable"),
+                    (dict(context="kind-cinderlock-Production"), "disposable"),
+                    (dict(context="kind-cinderlock--lab"), "disposable"),
+                    (dict(context="kind-cinderlock-lab-"), "disposable"),
+                    (dict(context="kind-cinderlock-lab/other"), "disposable"),
+                    (dict(context="kind-cinderlock-lab\n"), "disposable"),
+                    (dict(kubeconfig="config"), "absolute"), (dict(kubeconfig=""), "absolute"),
+                    (dict(kubeconfig=work / "missing-config"), "existing regular"),
+                    (dict(kubeconfig=existing), "regular"), (dict(kubeconfig=config_link), "symlink"),
                     (dict(namespace="default"), "namespace"),
                     (dict(namespace=ARGO.CONTROLLER_NAMESPACE), "namespace"),
                     (dict(registry="registry.customer:5000/offline"), "loopback"),
@@ -136,6 +197,7 @@ class PreparationBoundaryTest(unittest.TestCase):
                     result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn(reason, result.stderr)
+                    self.assertEqual(result.stdout, "")
                     self.assertFalse(marker.exists())
                     self.assertFalse((work / "new").exists())
 
@@ -308,11 +370,12 @@ class PlannedInputsTest(unittest.TestCase):
                         "CINDERLOCK_TEST_HELM must select an explicit admitted Helm executable")
         image = "127.0.0.1:5001/offline/application@sha256:" + "b" * 64
         with tempfile.TemporaryDirectory() as temporary:
+            kubeconfig = Path(temporary) / "empty-kubeconfig"
+            kubeconfig.touch(mode=0o600)
             environment = dict(os.environ, HELM_PLUGINS=temporary, HELM_CACHE_HOME=temporary,
-                               HELM_CONFIG_HOME=temporary, HELM_DATA_HOME=temporary)
+                               HELM_CONFIG_HOME=temporary, HELM_DATA_HOME=temporary, KUBECONFIG=str(kubeconfig))
             argv = [helm, "template", "document-qa", str(ARGO.PROJECT / "examples/document-qa/argocd-chart"),
-                    "--namespace", "cinderlock-argocd-synthetic", "--kubeconfig", ARGO.KUBECONFIG,
-                    "--kube-context", ARGO.CONTEXT, "--set-string"]
+                    "--namespace", "cinderlock-argocd-synthetic", "--kubeconfig", str(kubeconfig), "--set-string"]
             rendered = subprocess.run([*argv, "image=" + image], capture_output=True, text=True, env=environment, timeout=30)
             self.assertEqual(rendered.returncode, 0, rendered.stderr)
             self.assertEqual(sorted(re.findall(r"(?m)^kind: (\S+)$", rendered.stdout)), ["ConfigMap", "Deployment", "Service"])

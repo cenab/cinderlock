@@ -18,12 +18,9 @@ import tarfile
 import uuid
 
 PROJECT = Path(__file__).resolve().parents[2]
-KUBECONFIG = "/Users/batu/Developer/cinderlock/.local/kubeconfig"
-CONTEXT = "kind-cinderlock-test"
 CONTROLLER_NAMESPACE = "cinderlock-argocd-lab"
 PROFILE = "argocd-directory-v1"
 ACTIONS = ["import", "gitops-stage", "gitops-observe", "registry-http"]
-ADMITTED_HELM_DIGEST = "sha256:35ce1958b1f9d3e85d92b7ad2846556be9bd400def6efed2f05690d63ac5e7d8"
 
 _kind_spec = importlib.util.spec_from_file_location("cinderlock_kind_helpers", Path(__file__).with_name("kind.py"))
 _kind = importlib.util.module_from_spec(_kind_spec)
@@ -42,7 +39,7 @@ def file_digest(filename):
 
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
-    for flag in ("binary", "helm", "application-oci", "platform", "workdir", "kubeconfig", "context", "registry"):
+    for flag in ("binary", "helm", "helm-digest", "application-oci", "platform", "workdir", "kubeconfig", "context", "registry"):
         result.add_argument("--" + flag, required=True)
     result.add_argument("--namespace", default="cinderlock-argocd-" + uuid.uuid4().hex[:10])
     return result
@@ -50,8 +47,8 @@ def parser():
 
 def validate_inputs(args):
     # Select the lab before resolving tools or creating any output.
-    if args.context != CONTEXT or args.kubeconfig != KUBECONFIG:
-        raise ValueError("only the explicit disposable kind context and real lab kubeconfig are allowed")
+    if not re.fullmatch(r"kind-cinderlock-[a-z0-9]+(?:-[a-z0-9]+)*", args.context):
+        raise ValueError("context must explicitly select a disposable kind-cinderlock-* lab")
     if (not re.fullmatch(r"cinderlock-argocd-[a-z0-9][a-z0-9-]{0,40}[a-z0-9]", args.namespace)
             or args.namespace == CONTROLLER_NAMESPACE):
         raise ValueError("target namespace must be a fresh cinderlock-argocd-* namespace, separate from the controller")
@@ -64,8 +61,10 @@ def validate_inputs(args):
     if not work.parent.is_dir() or any(parent.is_symlink() for parent in work.parents):
         raise ValueError("workdir needs an existing parent without symlink ancestors")
     kubeconfig = Path(args.kubeconfig)
-    if not kubeconfig.is_file() or kubeconfig.resolve() != kubeconfig:
-        raise ValueError("the explicit lab kubeconfig must be a real existing file")
+    if not kubeconfig.is_absolute() or not kubeconfig.is_file() or kubeconfig.resolve() != kubeconfig:
+        raise ValueError("kubeconfig must select an absolute existing regular file without symlinks")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.helm_digest):
+        raise ValueError("helm-digest must be sha256:<64 lowercase hex> from an independent admitted tool record")
     if not re.fullmatch(r"linux/[a-z0-9_]+(?:/[a-z0-9_]+)?", args.platform):
         raise ValueError("platform must explicitly select linux/architecture[/variant]")
     image = Path(args.application_oci).resolve(strict=True)
@@ -80,8 +79,8 @@ def validate_inputs(args):
         if not resolved.is_file() or not os.access(resolved, os.X_OK):
             raise ValueError(name + " must select a regular executable file")
         tools[name] = dict(path=str(resolved), digest=file_digest(resolved))
-    if tools["helm"]["digest"] != ADMITTED_HELM_DIGEST:
-        raise ValueError("Helm bytes differ from this lab's admitted patched toolchain")
+    if tools["helm"]["digest"] != args.helm_digest:
+        raise ValueError("Helm bytes differ from the explicit admitted digest")
     return work, image, tools
 
 
