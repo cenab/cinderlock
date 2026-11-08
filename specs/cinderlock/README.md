@@ -15,25 +15,37 @@ install, model and fixture verification, schema upgrade, persistence, actual
 missing-document failure, and separate synthetic restore. It also exercised
 configuration ownership, storage budgets, custody-head replay rejection, signed
 policy updates, server admission dry-runs, and the patched Helm toolchain.
-See the [qualification record](../../docs/qualification.md) for the evidence
-boundary. Local receipts remain private under `.local/qualification-004/`.
+See the [qualification record](../../docs/qualification.md) for exact source and
+evidence boundaries. Local receipts remain private under `.local/`.
 
 Published `0a73b09` passed hosted Go checks and the real CPU Kubernetes workflow.
-Later endpoint, worker-budget and measured numeric Job changes are undergoing a
-fresh native run from `8db0077` under `.local/qualification-005/`; installation
-passed all six checks, while the complete transition/recovery result is pending.
+The later native run from `8db0077` under `.local/qualification-005/` completed
+installation, upgrade, deliberate document loss, and separate restore. The
+upgrade first exceeded the overall local wait, then resumed under fresh exact-plan
+authorization after preserving all 18 original Jobs and eight volume/manifest
+bindings. Required endpoint and numeric checks passed; the optional zero-budget
+control retained its failure. Original failed-release acceptance stayed unset.
 The owned image builder has been removed; archives and exact receipts remain.
 
-The bounded Argo directory/source/resource observer is merged as `7110c88` and
-passes integrated whole-tree checks. Qualify it against the pinned Argo CD core
-in `kind-cinderlock-test`, namespace `cinderlock-argocd-lab`, using the separate
-fixture preparation pass. Bootstrap identities remain private under
-`.local/argocd-profile/`; no GitOps application workflow is qualified yet.
+The bounded Argo directory/source/resource observer at `f8bf623` passed against
+the pinned Argo CD v3.6.1 core in `kind-cinderlock-test`, namespace
+`cinderlock-argocd-lab`. Actual Deployment/Service/ConfigMap fields and SSA
+ownership matched; application acceptance remains unestablished. Live denial
+controls are a separate pass. Source and bootstrap identities remain private
+under `.local/argocd-profile/`; no GitOps application workflow is qualified yet.
 Finish F39 model/data preparation, independently authorized application checks
 and data recovery using the normal engine, then run the complete release gates
 and publish. Controller observation alone cannot establish application acceptance.
 Keep these passes separate from the hosted core baseline; incomplete original
 worker identities cannot serve as resume evidence.
+
+Subsequent safety passes recheck current authority after fixture-verifier waits
+and before final acceptance. Prerequisites no longer repeat the immediately
+adjacent target sweep, while each new worker and effect retains its fresh guard.
+The timing audit identified duplication; no post-change live speedup is claimed.
+Whole-tree checks passed at `f8bf623`. Later merges need the combined release
+gates. Conceptual engine/observer/input splits leave every source below the
+8,000-token audit budget without adding a hook or dependency.
 
 The user will supply NVIDIA test hardware later. Keep GPU qualification open;
 continue all CPU, artifact, permission, security, catalog, and distribution work.

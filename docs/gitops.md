@@ -196,6 +196,9 @@ The adapter is grounded in the pinned Argo
 [source generation](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/reposerver/repository/repository.go),
 and [resource tracking](https://github.com/argoproj/argo-cd/blob/94037c4d4e1af4bd0651d37a179fbd9e347e668c/docs/user-guide/resource_tracking.md).
 Fake API fixtures verify inspection, denial, and redaction behavior; temporary
-Git repositories verify file and history handling. These checks don't establish
-live controller reconciliation. Controller/version qualification, model/data
-preparation, and independently authorized application workflows remain open.
+Git repositories verify file and history handling. The
+[qualification record](qualification.md) separately records the completed
+bounded Argo v3.6.1 live observation. Use the
+[Argo directory input guide](argocd-qualification.md) to prepare a fresh lab.
+Model/data preparation, independently authorized application workflows, and
+broader controller/version qualification remain open.

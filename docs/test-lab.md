@@ -7,6 +7,10 @@ data, deliberately fails persistence acceptance, and executes a separately
 authorized synthetic restore. It is a workflow test, not an LLM, GPU, production
 restore, or physical-air-gap test.
 
+The separate [Argo directory input guide](argocd-qualification.md) prepares a
+bounded controller-observation fixture. Its stateless chart does not replace
+this native persistence, migration, and restore workflow.
+
 > **Note:** This is a preview feature currently under active development.
 
 ## Prerequisites and scope

@@ -375,3 +375,29 @@ validated identities, digests, times, and match facts rather than source/config
 values or raw controller errors. The design separated recovery domains but left
 the first evidence format open. A ready observation remains point-in-time
 evidence with application acceptance not established, never execution authority.
+
+### Reuse completed evidence while guarding every new worker
+
+**Verdict:** sound · **Confidence:** high. **When:** check execution and resume.
+
+An already completed prerequisite still needs its original recipe, Job identity,
+terminal state, and freshness checks; it does not need another immediately
+adjacent full target sweep. The new-intent branch receives the current execution
+guard instead. Intervening fixture-verifier waits require another guard before
+the next worker, because approval or policy can expire during that wait. Final
+acceptance repeats the complete guard, including coordination and checkpoint
+facts. A failed guard retains completed evidence without inventing an authored
+worker identity or starting a replacement. The timing audit supports removing
+duplicate reads; a live speedup has not yet been measured.
+
+### Separate current registry availability from a byte audit
+
+**Verdict:** sound · **Confidence:** medium. **When:** GitOps dependency evidence.
+
+Image staging proves the addressed copy completed at that time. A later bounded
+metadata read can check that every descriptor in the signed closure is still
+available, without downloading all layers before each application check. A
+separate verifier reads and hashes the full graph when the execution phase
+requires a fresh byte audit. Neither reader writes tags or content. Metadata
+availability alone cannot detect changed bytes behind an unchanged descriptor,
+prove a future pull, or replace the original completed-copy evidence.
