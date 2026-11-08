@@ -98,7 +98,7 @@ func VerifyPacket(p Packet, keys []PacketKey) (PacketBody, string, error) {
 		if len(trusted.Kinds) > 0 && !slices.Contains(trusted.Kinds, r.Kind) {
 			return body, "", errors.New("packet key is not admitted for this record kind")
 		}
-		if len(trusted.Kinds) == 0 && (r.Kind == "TrustPolicy" || r.Kind == "Approval") {
+		if len(trusted.Kinds) == 0 && (r.Kind == "TrustPolicy" || r.Kind == "PolicyPack" || r.Kind == "Approval") {
 			return body, "", errors.New("policy and approval observations need an explicit packet-key kind scope")
 		}
 	}

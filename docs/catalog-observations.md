@@ -1,9 +1,10 @@
-# Recorded comparisons, local notifications, and external evidence
+# Catalog policy and observations
 
 The optional catalog compares admitted observations, maintains an explicitly
-configured local notification outbox, and verifies typed external evidence.
-These features don't inspect live clusters, send messages, or grant execution
-authority. They use the authentication, role checks, private configuration, and
+configured local notification outbox, evaluates restrictive policy packs, and
+verifies typed external evidence. These features don't inspect live clusters,
+send messages, or grant execution authority. They use the authentication, role
+checks, private configuration, and
 request protections described in [the catalog guide](REUSE-service.md).
 
 ## Compare recorded runs
@@ -43,6 +44,80 @@ Linked-object lookup streams through at most the most recent thousand records
 of each required kind at that project and site. Older missing dependencies need
 an explicitly supported history/index extension; there is no silent fallback or
 large-fleet qualification claim. Support-only identities cannot read this view.
+
+## Admit restrictive policy packs
+
+Policy packs add customer-controlled restrictions to catalog plan review. They
+remain independent of the engine's trust policy and signed execution approval.
+A satisfied pack grants no execution permission, changes no run acceptance, and
+doesn't establish current health.
+
+A policy administrator registers an immutable `PolicyPack` through the normal
+authenticated record API. The [typed contract](../internal/catalog/policy.go)
+accepts explicit profile names, declared operation types, and required check IDs.
+For example, the body of a project-scoped record can contain:
+
+```json
+{
+  "apiVersion": "cinderlock.dev/v1alpha1",
+  "kind": "PolicyPack",
+  "schemaVersion": 1,
+  "id": "release-review",
+  "expiresAt": "2027-01-01T00:00:00Z",
+  "profiles": ["cpu-lab"],
+  "actions": ["import", "helm"],
+  "requiredChecks": ["query"]
+}
+```
+
+Set your own reviewed expiry and restrictions. Supply the body inside a catalog
+`Record` with its explicit project, optional site, and `kind:"PolicyPack"`.
+Registration or packet import alone cannot activate restrictions. Packet imports
+also require the policy role and an independently admitted packet key whose
+`kinds` explicitly includes `PolicyPack`.
+
+Independently review the resulting complete record digest, then add its exact
+scope and digest to your private `CatalogConfig` and restart the catalog:
+
+```json
+{
+  "policyPacks": [
+    {"project":"plant", "digest":"sha256:EXACT_POLICY_PACK_RECORD"}
+  ]
+}
+```
+
+Replace the sample digest with the complete record digest, not the body hash.
+An omitted site reuses a project-scoped pack across that project's sites. A
+site-scoped admission selects a pack registered under that exact site. Neither
+form reads another project or bypasses a reader's site restrictions. Multiple
+applicable packs all apply; one cannot override another's denial. Omitting a
+restriction field leaves that dimension unrestricted by that pack. At least
+one restriction and an expiry are mandatory; unknown fields and actions fail.
+
+Evaluate an exact admitted plan, optionally with its exact recorded run:
+
+```text
+GET /api/v1/policy-evaluations?project=plant&site=west&plan=sha256:PLAN_RECORD&run=sha256:RUN_RECORD
+```
+
+The response binds `catalogPolicyDigest`, the plan body digest, and each pack's
+record digest. A check must exist and be effectively required in the plan. When
+you supply a run, that same check must also have a recorded pass; missing results
+fail. Profile names must match the configured allowlist, and every declared
+operation must match any configured action allowlist. This action scope follows
+the plan's operation list; the engine separately enforces permissions for check
+execution. Unsupported plan kinds, malformed contracts, mismatched run/plan/site
+identities, missing linked objects, and altered stored bytes fail closed.
+
+If a pack applies, `/api/v1/approvals` requires the current evaluation's
+`catalogPolicyDigest` alongside its existing exact-plan decision fields. Changed
+configuration requires a fresh review. Pack expiry and restrictions are checked
+again when recording approval and when retrying an earlier approval request.
+An expired or unsatisfied pack blocks review; a historical approval remains an
+observation, not a permanently valid permission. Without applicable packs, the
+existing approval request remains compatible. Import previews bind the same
+configuration digest and become invalid after admission configuration changes.
 
 ## Enable a local notification outbox
 
@@ -93,6 +168,9 @@ already exported entries, or changed pending state fail. Export marks the entrie
 as exported locally and returns `sent:false`; it doesn't acknowledge receipt by a
 person or system. Pending list and selection size are bounded. There is no remote
 notification delivery or automatic outreach capability.
+
+An authenticated local or internal consumer can read the pending-list endpoint;
+reading it does not record recipient acknowledgement.
 
 ## Verify typed external evidence
 

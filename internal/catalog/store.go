@@ -178,7 +178,7 @@ func normalizeRecord(r Record) (Record, []byte, string, error) {
 		return r, nil, "", errors.New("invalid project or site identifier")
 	}
 	switch r.Kind {
-	case "Release", "Site", "RunResult", "Plan", "TrustPolicy", "Approval", "Receipt", "Evidence":
+	case "Release", "Site", "RunResult", "Plan", "TrustPolicy", "PolicyPack", "Approval", "Receipt", "Evidence":
 	default:
 		return r, nil, "", errors.New("unsupported catalog record kind")
 	}
@@ -194,6 +194,15 @@ func normalizeRecord(r Record) (Record, []byte, string, error) {
 		return r, nil, "", err
 	}
 	r.Body = body
+	if r.Kind == "PolicyPack" {
+		var pack PolicyPack
+		if err := strictJSON(body, &pack); err != nil {
+			return r, nil, "", err
+		}
+		if err := validatePolicyPack(pack); err != nil {
+			return r, nil, "", err
+		}
+	}
 	b, err := canonical(r)
 	if err != nil {
 		return r, nil, "", err

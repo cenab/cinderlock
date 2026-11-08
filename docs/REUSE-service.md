@@ -93,10 +93,11 @@ policy, credentials, state, and execution approval.
 
 ## Packet exchange and confidentiality
 
-Read [recorded comparisons, local notifications, and external evidence](catalog-observations.md)
-for the read-only comparison API, configured local outbox, digest-reviewed
-notification export, and separately signed typed evidence contract. These
-surfaces retain local execution authority and do not send external messages.
+Read [catalog policy and observations](catalog-observations.md) for independently
+admitted restrictive policy packs, recorded comparisons, the configured local
+outbox, digest-reviewed notification export, and separately signed typed
+evidence. These surfaces retain local execution authority and do not send
+external messages.
 
 `catalog.SignPacket` and `VerifyPacket` sign canonical `CatalogPacket` bytes
 under `cinderlock.catalog-packet.v1` followed by one NUL byte. Packet keys are

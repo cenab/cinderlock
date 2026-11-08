@@ -11,14 +11,15 @@ import (
 )
 
 type FileConfig struct {
-	APIVersion        string             `json:"apiVersion"`
-	Kind              string             `json:"kind"`
-	Origin            string             `json:"origin"`
-	Actors            []Actor            `json:"actors"`
-	PacketKeys        []PacketKey        `json:"packetKeys"`
-	OIDC              *OIDCConfig        `json:"oidc,omitempty"`
-	NotificationRules []NotificationRule `json:"notificationRules,omitempty"`
-	EvidenceKeys      []EvidenceKey      `json:"evidenceKeys,omitempty"`
+	APIVersion        string                `json:"apiVersion"`
+	Kind              string                `json:"kind"`
+	Origin            string                `json:"origin"`
+	Actors            []Actor               `json:"actors"`
+	PacketKeys        []PacketKey           `json:"packetKeys"`
+	OIDC              *OIDCConfig           `json:"oidc,omitempty"`
+	NotificationRules []NotificationRule    `json:"notificationRules,omitempty"`
+	EvidenceKeys      []EvidenceKey         `json:"evidenceKeys,omitempty"`
+	PolicyPacks       []PolicyPackAdmission `json:"policyPacks,omitempty"`
 }
 
 func LoadConfig(ctx context.Context, path string, store *Store) (Config, error) {
@@ -36,7 +37,7 @@ func LoadConfig(ctx context.Context, path string, store *Store) (Config, error) 
 	if file.APIVersion != spec.APIVersion || file.Kind != "CatalogConfig" {
 		return Config{}, errors.New("unsupported catalog configuration")
 	}
-	cfg := Config{Store: store, Actors: file.Actors, PacketKeys: file.PacketKeys, Origin: file.Origin, NotificationRules: file.NotificationRules, EvidenceKeys: file.EvidenceKeys}
+	cfg := Config{Store: store, Actors: file.Actors, PacketKeys: file.PacketKeys, Origin: file.Origin, NotificationRules: file.NotificationRules, EvidenceKeys: file.EvidenceKeys, PolicyPacks: file.PolicyPacks}
 	if file.OIDC != nil {
 		cfg.OIDC, err = NewOIDC(ctx, *file.OIDC)
 		if err != nil {

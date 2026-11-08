@@ -37,6 +37,7 @@ type Config struct {
 	Now               func() time.Time
 	NotificationRules []NotificationRule
 	EvidenceKeys      []EvidenceKey
+	PolicyPacks       []PolicyPackAdmission
 }
 
 type Server struct {
@@ -63,6 +64,10 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	if err := validateEvidenceKeys(cfg.EvidenceKeys); err != nil {
 		return nil, err
 	}
+	if err := validatePolicyAdmissions(cfg.PolicyPacks); err != nil {
+		return nil, err
+	}
+	cfg.PolicyPacks = append([]PolicyPackAdmission(nil), cfg.PolicyPacks...)
 	cfg.EvidenceKeys = append([]EvidenceKey(nil), cfg.EvidenceKeys...)
 	for i := range cfg.EvidenceKeys {
 		k := &cfg.EvidenceKeys[i]
@@ -115,12 +120,13 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		oidcScope = cfg.OIDC.scope
 	}
 	b, err := canonical(struct {
-		Actors        []Actor            `json:"actors"`
-		Keys          []PacketKey        `json:"keys"`
-		OIDC          string             `json:"oidc"`
-		Notifications []NotificationRule `json:"notifications"`
-		EvidenceKeys  []EvidenceKey      `json:"evidenceKeys"`
-	}{policyActors, cfg.PacketKeys, oidcScope, cfg.NotificationRules, cfg.EvidenceKeys})
+		Actors        []Actor               `json:"actors"`
+		Keys          []PacketKey           `json:"keys"`
+		OIDC          string                `json:"oidc"`
+		Notifications []NotificationRule    `json:"notifications"`
+		EvidenceKeys  []EvidenceKey         `json:"evidenceKeys"`
+		PolicyPacks   []PolicyPackAdmission `json:"policyPacks"`
+	}{policyActors, cfg.PacketKeys, oidcScope, cfg.NotificationRules, cfg.EvidenceKeys, cfg.PolicyPacks})
 	if err != nil {
 		return nil, err
 	}
@@ -299,6 +305,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.comparison(w, r, actor)
 		return
 	}
+	if r.Method == "GET" && r.URL.Path == "/api/v1/policy-evaluations" {
+		s.policyEvaluation(w, r, actor)
+		return
+	}
 	if r.Method == "GET" && r.URL.Path == "/api/v1/notifications" {
 		project, site := r.URL.Query().Get("project"), r.URL.Query().Get("site")
 		if !actor.can(project, site, "read") || onlySupport(actor, project) {
@@ -357,6 +367,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, e)
 		return
 	} else if ok {
+		if r.URL.Path == "/api/v1/approvals" {
+			var decision ApprovalRequest
+			if err = strictJSON(body, &decision); err == nil {
+				err = s.checkPolicyApproval(r.Context(), decision)
+			}
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+		}
 		s.json(w, replay)
 		return
 	}
@@ -399,7 +419,7 @@ func (s *Server) mutate(ctx context.Context, a Actor, path string, b []byte) (an
 		switch record.Kind {
 		case "Plan":
 			action = "import"
-		case "TrustPolicy":
+		case "TrustPolicy", "PolicyPack":
 			action = "policy"
 		case "Site":
 			action = "enroll"
@@ -572,6 +592,9 @@ func (s *Server) mutate(ctx context.Context, a Actor, path string, b []byte) (an
 		if err != nil || !s.cfg.Now().Before(exp) {
 			return nil, errors.New("approval expiry required")
 		}
+		if err = s.checkPolicyApproval(ctx, request); err != nil {
+			return nil, err
+		}
 		payload, err := canonical(struct {
 			Decision   ApprovalRequest `json:"decision"`
 			Actor      string          `json:"actor"`
@@ -588,22 +611,23 @@ func (s *Server) mutate(ctx context.Context, a Actor, path string, b []byte) (an
 }
 
 type ApprovalRequest struct {
-	Project          string   `json:"project"`
-	Site             string   `json:"site"`
-	PlanRecordDigest string   `json:"planRecordDigest"`
-	PlanDigest       string   `json:"planDigest"`
-	PolicyDigest     string   `json:"policyDigest"`
-	PolicyEpoch      int64    `json:"policyEpoch"`
-	TargetID         string   `json:"targetID"`
-	Actions          []string `json:"actions"`
-	ExpiresAt        string   `json:"expiresAt"`
+	CatalogPolicyDigest string   `json:"catalogPolicyDigest,omitempty"`
+	Project             string   `json:"project"`
+	Site                string   `json:"site"`
+	PlanRecordDigest    string   `json:"planRecordDigest"`
+	PlanDigest          string   `json:"planDigest"`
+	PolicyDigest        string   `json:"policyDigest"`
+	PolicyEpoch         int64    `json:"policyEpoch"`
+	TargetID            string   `json:"targetID"`
+	Actions             []string `json:"actions"`
+	ExpiresAt           string   `json:"expiresAt"`
 }
 
 func packetRoles(a Actor, body PacketBody) error {
 	for _, r := range body.Records {
 		action := "import"
 		switch r.Kind {
-		case "TrustPolicy":
+		case "TrustPolicy", "PolicyPack":
 			action = "policy"
 		case "Approval":
 			action = "approve"
