@@ -50,6 +50,12 @@ commit the database change. The next invocation checks the application's own
 operation evidence before continuing. Where that evidence is inconclusive,
 the run stays unresolved rather than manufacturing a successful receipt.
 
+A local wait ending must not turn canceled reads into invented target or
+credential changes. A freshly admitted run can establish a stop before its
+first operation; resume cannot assume that absence of prior work. The private
+execution entry point carries that distinction, preserving definite stops while
+later interrupted observations retain their active reconciliation claim.
+
 ### Keys and approvals have different purposes
 
 **Verdict:** sound · **Confidence:** high.

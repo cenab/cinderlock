@@ -147,7 +147,7 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 			return result, err
 		}
 	}
-	return e.execute(ctx, p, v, policy, a, approved, coord, result)
+	return e.execute(ctx, p, v, policy, a, approved, coord, result, true)
 }
 
 func authorizationExpiry(a *spec.Authorization) string {
@@ -163,7 +163,7 @@ func newResult(p spec.Plan, id, digest string) spec.RunResult {
 	return r
 }
 
-func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy, a *spec.Authorization, approved bool, coord *coordinator, result spec.RunResult) (spec.RunResult, error) {
+func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy, a *spec.Authorization, approved bool, coord *coordinator, result spec.RunResult, firstExecution bool) (spec.RunResult, error) {
 	if result.Error != "" || result.FinishedAt != "" {
 		if err := e.Store.Event(ctx, result.RunID, "run_resumed", map[string]any{"previousOutcome": result}); err != nil {
 			return result, spec.Err(13, "previous run outcome could not be retained before resume")
@@ -172,7 +172,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	result.State = "mutating"
 	result.Error, result.FinishedAt = "", ""
 	fail := func(err error) (spec.RunResult, error) {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil && spec.ExitCode(err) != 17 {
 			err = spec.Err(13, "local execution wait ended; reconcile the original recorded worker outcomes before continuing")
 		}
 		result.Error = err.Error()
@@ -204,6 +204,10 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			return result, fmt.Errorf("%w; cluster result persistence also failed: %v", err, recordErr)
 		}
 		return result, err
+	}
+	// Fresh admission cannot have started an operation; resume has no such guarantee.
+	if firstExecution && ctx.Err() != nil {
+		return fail(spec.Err(17, "stop requested before first operation"))
 	}
 	checkBoundary := func() (spec.TargetSnapshot, error) {
 		if err := coord.check(ctx); err != nil {
@@ -784,7 +788,7 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 			return result, err
 		}
 	}
-	return e.execute(ctx, p, v, policy, a, approved, coord, result)
+	return e.execute(ctx, p, v, policy, a, approved, coord, result, false)
 }
 
 func (e *Engine) RecoveryPlan(ctx context.Context, runID, recoveryID, bundlePath, sitePath string, policy spec.TrustPolicy) (spec.Plan, error) {
