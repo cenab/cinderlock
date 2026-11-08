@@ -329,6 +329,9 @@ func Write(path string, v any) error {
 	if e != nil {
 		return e
 	}
+	if len(b) >= MaxDocumentBytes {
+		return Err(2, "document with trailing newline exceeds size limit")
+	}
 	return WriteBytes(path, append(b, '\n'))
 }
 func WriteBytes(path string, b []byte) error {

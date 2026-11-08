@@ -97,3 +97,30 @@ func FuzzStrictDecode(f *testing.F) {
 	f.Add([]byte("x: 1"))
 	f.Fuzz(func(t *testing.T, b []byte) { var v any; _ = Decode(b, &v) })
 }
+
+func TestWriteReservesTheReadersTrailingNewlineByte(t *testing.T) {
+	for _, spare := range []int{0, 1} {
+		name := "compact-at-limit"
+		if spare == 1 {
+			name = "newline-at-limit"
+		}
+		t.Run(name, func(t *testing.T) {
+			document := map[string]string{"value": strings.Repeat("x", MaxDocumentBytes-len(`{"value":""}`)-spare)}
+			path := filepath.Join(t.TempDir(), "document.json")
+			err := Write(path, document)
+			if err != nil && spare == 0 {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatal("size rejection left an unreadable output file", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal("readable inclusive-limit document was rejected", err)
+			}
+			var restored map[string]string
+			if err := Read(path, &restored); err != nil || restored["value"] != document["value"] {
+				t.Fatal("successful writer produced a document its reader cannot reopen", err)
+			}
+		})
+	}
+}
