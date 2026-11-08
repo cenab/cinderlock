@@ -100,6 +100,33 @@ def header(kind, **metadata):
     return dict(apiVersion=API, schemaVersion=1, kind=kind, metadata=metadata)
 
 
+def workflow_checks(number, fixture):
+    names = (["health", "ingestion", "query", "persistence"] if number == 1
+             else ["persistence", "health", "query", "ingestion"] if number == 2
+             else ["persistence", "health", "query"])
+    checks = [dict(id=name, type="job", domain="readiness" if name == "health" else "workflow",
+        required=True, image="application", command=["python", "/app/app.py", "probe", "--base-url",
+        "http://document-qa:8080", "--check", name], timeoutSeconds=90) for name in names]
+    numeric = dict(id="numeric-observations", type="job", domain="workflow", required=True,
+        image="application", command=["python", "/app/app.py", "observe", "--base-url", "http://document-qa:8080"],
+        timeoutSeconds=90, observationContract=fixture.observation_contract())
+    checks.append(numeric)
+    if number == 2:
+        checks.append(dict(numeric, id="numeric-budget-negative", required=False,
+            command=[*numeric["command"], "--memory-limit-bytes", "0"],
+            observationContract=fixture.observation_contract(memory_limit_bytes=0)))
+    for check in checks:
+        check["script"] = dict(
+            inputs=["Locked application image, explicit probe argv, and declared synthetic fixture when present."],
+            permissions=["Access the internal synthetic application HTTP endpoint; no Kubernetes API token."],
+            sideEffects=["Upsert the fixed synthetic document." if check["id"] == "ingestion" else "Read synthetic application state without changing stored documents."],
+            successChecks=[check["id"]], retry="manual")
+        if check["domain"] == "workflow":
+            check["fixtures"] = ["acceptance-fixture"]
+            check["command"] += ["--fixture", "/cinderlock-fixtures/acceptance-fixture/document.json"]
+    return checks
+
+
 class Lab:
     def __init__(self, args):
         self.args = args
@@ -265,21 +292,7 @@ class Lab:
         if number > 1:
             values["models"] = dict(existingClaim="document-qa-model-v2")
         save(directory / "values.json", values)
-        checks = [dict(id=name, type="job", domain="readiness" if name == "health" else "workflow",
-            required=True, image="application", command=["python", "/app/app.py", "probe", "--base-url",
-            "http://document-qa:8080", "--check", name], timeoutSeconds=90)
-            for name in (["health", "ingestion", "query", "persistence"] if number == 1
-                         else ["persistence", "health", "query", "ingestion"] if number == 2
-                         else ["persistence", "health", "query"])]
-        for check in checks:
-            check["script"] = dict(
-                inputs=["Locked application image, explicit probe argv, and declared synthetic fixture when present."],
-                permissions=["Access the internal synthetic application HTTP endpoint; no Kubernetes API token."],
-                sideEffects=["Upsert the fixed synthetic document." if check["id"] == "ingestion" else "Read synthetic application state without changing stored documents."],
-                successChecks=[check["id"]], retry="manual")
-            if check["domain"] == "workflow":
-                check["fixtures"] = ["acceptance-fixture"]
-                check["command"] += ["--fixture", "/cinderlock-fixtures/acceptance-fixture/document.json"]
+        checks = workflow_checks(number, fixture)
         fixture_seed = dict(id="acceptance-fixtures", type="seed", asset="acceptance-fixture",
             pvc=f"document-qa-fixture-v{number}", mountPath="/fixtures", storageBytes=16 << 20,
             idempotent=True, dependsOn=["images"], timeoutSeconds=120)
@@ -341,7 +354,7 @@ class Lab:
                    + [dict(id="model", type="model-tree", source="./models", license="Apache-2.0"),
                       dict(id="acceptance-fixture", type="file-tree", source="./fixtures", license="Apache-2.0")],
             aiProfile=dict(modelAsset="model", runtimeAsset="application"), operations=operations,
-            transitions=[transition], checks=checks, requiredChecks=[c["id"] for c in checks], recovery=[recovery])
+            transitions=[transition], checks=checks, requiredChecks=[c["id"] for c in checks if c["required"]], recovery=[recovery])
         save(directory / "release.json", release)
         self.cli("release", "lock", directory / "release.json", "--out", directory / "release.lock.json")
         locked = json.loads((directory / "release.lock.json").read_text())
@@ -351,6 +364,66 @@ class Lab:
         self.cli("bundle", "build", directory / "release.lock.json", "--key", self.work / "release.key",
                  "--key-id", "release", "--out", bundle)
         return bundle
+
+    def observation_output(self, source, run_id):
+        def original_pod():
+            job = json.loads(self.kube("-n", self.namespace, "get", "job", source["jobName"], "-o", "json"))
+            assert job["metadata"]["uid"] == source["jobUID"], "numeric Job UID changed"
+            assert job["metadata"]["labels"]["cinderlock.dev/run"] == run_id, "numeric Job run changed"
+            assert job["metadata"]["annotations"]["cinderlock.dev/recipe-digest"] == source["recipeDigest"], "numeric recipe changed"
+            assert any(c["type"] == "Complete" and c["status"] == "True" for c in job["status"]["conditions"]), "numeric Job is not complete"
+            pods = json.loads(self.kube("-n", self.namespace, "get", "pods", "-l", "job-name=" + source["jobName"], "-o", "json"))["items"]
+            assert len(pods) == 1, "numeric Job has no unique original Pod"
+            pod = pods[0]
+            assert (pod["metadata"]["name"], pod["metadata"]["uid"]) == (source["podName"], source["podUID"]), "numeric Pod identity changed"
+            assert pod["status"]["phase"] == "Succeeded", "numeric Pod did not complete successfully"
+            controllers = [owner for owner in pod["metadata"]["ownerReferences"] if owner.get("controller")]
+            assert len(controllers) == 1 and all(controllers[0][key] == value for key, value in
+                dict(apiVersion="batch/v1", kind="Job", name=source["jobName"], uid=source["jobUID"]).items()), "numeric Pod owner changed"
+
+        original_pod()
+        output = self.kube("-n", self.namespace, "logs", "pod/" + source["podName"], "-c", "operation")
+        original_pod()
+        assert 0 < len(output.encode()) <= 64 << 10, "numeric output exceeds the declared document bound"
+        assert source["outputDigest"] == "sha256:" + hashlib.sha256(output.encode()).hexdigest(), "numeric original output digest changed"
+        return json.loads(output)
+
+    def observations(self, plan, result, missing=False):
+        for check in plan["checks"]:
+            contract = check.get("observationContract")
+            if contract is None:
+                continue
+            negative = check["id"] == "numeric-budget-negative"
+            required = not negative
+            assert check["required"] is required, "numeric negative control must remain optional"
+            assert (check["id"] in plan["requiredChecks"]) is required, "numeric requiredChecks changed"
+            outcome = next(item for item in result["checks"] if item["id"] == check["id"])
+            assert outcome["required"] is required, "numeric result required scope changed"
+            assert outcome["status"] == ("fail" if missing or negative else "pass"), "numeric outcome differs from actual fixture/budget case"
+            observed = outcome["observations"]
+            assert observed["basis"] == "application_reported" and observed["contract"] == contract, "numeric declaration differs"
+            source = observed["source"]
+            assert all(source[key] for key in ["jobName", "jobUID", "podName", "podUID"]), "numeric source identity missing"
+            assert all(re.fullmatch(r"sha256:[0-9a-f]{64}", source[key]) for key in ["recipeDigest", "outputDigest"]), "numeric source digest missing"
+            assert outcome["evidence"] == "job/" + source["jobName"], "numeric evidence points at another worker"
+            report = observed["report"]
+            assert report == self.observation_output(source, result["runID"]), "numeric recorded samples differ from original output"
+            assert report["profile"] == contract["profile"] and report["device"] == "cpu" and report["mode"] == "client-tracemalloc", "numeric measurement scope changed"
+            assert report["runtime"].startswith("python-test-client-") and report["warmCold"] == "unknown" and report["concurrency"] == 1, "numeric runtime/cache scope changed"
+            assert [sample["index"] for sample in report["samples"]] == list(range(1, contract["sampleCount"] + 1)), "numeric samples omitted or reordered"
+            for sample in report["samples"]:
+                assert [(metric["name"], metric["unit"]) for metric in sample["metrics"]] == [(bound["name"], bound["unit"]) for bound in contract["metrics"]], "numeric metrics omitted or reordered"
+                for metric, bound in zip(sample["metrics"], contract["metrics"], strict=True):
+                    value = metric["value"]
+                    assert type(value) is int, "numeric value is not an integer"
+                    if bound["name"] == "fixture-match":
+                        assert value == (0 if missing else 1), "numeric fixture assertion differs"
+                    elif bound["name"] == "client-traced-peak":
+                        assert value > 0, "numeric allocation was not measured"
+                    if negative and bound["name"] == "client-traced-peak":
+                        assert bound["max"] == 0 and value > bound["max"], "negative allocation budget did not fail against measured output"
+                    elif not (missing and bound["name"] == "fixture-match"):
+                        assert bound["min"] <= value <= bound["max"], "numeric sample missed its ordinary budget"
 
     def execute(self, bundle, prefix, expected=0, recovery=None):
         self.refresh_storage()
@@ -376,6 +449,9 @@ class Lab:
             result = self.cli("run", "recover", recovery, "--plan", plan, "--authorization", authorization, expected=expected)
         else:
             result = self.cli("run", "apply", plan, "--authorization", authorization, expected=expected)
+        recorded = self.cli("run", "report", result["runID"], "--format", "json")
+        assert recorded == result, "public CLI report differs from returned run evidence"
+        self.observations(json.loads(plan.read_text()), recorded, missing=prefix == "v3")
         self.receipts.append(result)
         save(self.work / f"{prefix}-result.json", result)
         return result
@@ -393,6 +469,10 @@ class Lab:
             result = self.execute(bundle, f"v{number}", expected=15 if number == 3 else 0)
             if number < 3:
                 assert result["state"] == "succeeded" and result["acceptance"] == "pass", result
+                assert all(c["status"] == "pass" for c in result["checks"] if c["required"]), result
+                if number == 2:
+                    negative = next(c for c in result["checks"] if c["id"] == "numeric-budget-negative")
+                    assert not negative["required"] and negative["status"] == "fail", negative
             else:
                 assert result["acceptance"] != "pass" and any(c["id"] == "persistence" and c["status"] == "fail" for c in result["checks"]), result
                 # The failure must come from the actual missing document, not orchestration.
@@ -411,8 +491,8 @@ class Lab:
                 self.cli("run", "events", recovered["runID"])
         save(self.work / "summary.json", dict(namespace=self.namespace, results=self.receipts,
              gpu="not_tested", physicalIsolation="not_established", productionRecovery="not_qualified",
-             remoteStorageCapacity="synthetic_assertions_not_measured"))
-        print(f"CLI install, migration, persistence, failed acceptance and synthetic restore passed: {self.work}")
+             remoteStorageCapacity="synthetic_assertions_not_measured", numericMemoryScope="test_client_python_traced_allocation_only"))
+        print(f"CLI install, migration, persistence, numeric observations, failed acceptance and synthetic restore passed: {self.work}")
 
 
 def main():

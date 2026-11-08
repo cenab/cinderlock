@@ -13,6 +13,8 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
+import tracemalloc
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,6 +22,7 @@ import uuid
 
 APP_ID = 0x434C434B
 MAX_REQUEST = 65536
+MAX_OBSERVATION_MEMORY = 16 << 20
 DOCUMENT_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 HERE = Path(__file__).resolve().parent
 
@@ -396,6 +399,69 @@ def probe(base_url, check, fixture_path=None):
     return {"check": check, "status": "pass", "workload": "synthetic-lexical-not-llm"}
 
 
+def observation_contract(memory_limit_bytes=MAX_OBSERVATION_MEMORY):
+    if type(memory_limit_bytes) is not int or not 0 <= memory_limit_bytes <= MAX_OBSERVATION_MEMORY:
+        raise ValueError("memory limit must be an integer from 0 to 16777216 bytes")
+    return {
+        "version": 1,
+        "testRevision": "document-qa-persistence-client-1",
+        "assertionRevision": "fixture-client-tracemalloc-1",
+        "profile": "kubernetes-cpu-lab",
+        "sampleCount": 3,
+        "sampling": {"http-reads-per-sample": 1, "concurrency": 1, "retries": 0},
+        "nondeterminism": "HTTP latency and traced Python allocation vary with scheduling, interpreter state and caches.",
+        "limitations": (
+            "Client traced Python allocation excludes serving/native/RSS/GPU memory. "
+            "Only three synthetic reads, not performance/profile qualification. "
+            "Serving, image, registry and node-cache warmth are unknown."
+        ),
+        "metrics": [
+            {"name": "fixture-match", "kind": "assertion", "unit": "count", "min": 1, "max": 1,
+             "assertion": "The existing persistence probe matches the staged fixture text; success yields 1 and ValueError yields 0."},
+            {"name": "probe-latency", "kind": "latency", "unit": "microseconds", "min": 0, "max": 20000000,
+             "assertion": "Client elapsed time for one persistence probe from perf_counter_ns, truncated to integer microseconds."},
+            {"name": "client-traced-peak", "kind": "resource", "unit": "bytes", "min": 0, "max": memory_limit_bytes,
+             "assertion": "Python test-client peak allocation traced by tracemalloc around one persistence probe; excludes serving/native/RSS/GPU memory."},
+        ],
+    }
+
+
+def observe(base_url, fixture_path, memory_limit_bytes=MAX_OBSERVATION_MEMORY):
+    contract = observation_contract(memory_limit_bytes)
+    samples = []
+    for index in range(1, contract["sampleCount"] + 1):
+        matched = 1
+        tracemalloc.start()
+        tracemalloc.clear_traces()
+        started = time.perf_counter_ns()
+        try:
+            probe(base_url, "persistence", fixture_path)
+        except ValueError:
+            matched = 0
+        finally:
+            elapsed = (time.perf_counter_ns() - started) // 1000
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+        samples.append({
+            "index": index,
+            "metrics": [{"name": metric["name"], "unit": metric["unit"], "value": value}
+                        for metric, value in zip(contract["metrics"], (matched, elapsed, peak), strict=True)],
+        })
+    # Sorted compact JSON matches canonical JSON for this fixed ASCII safe-integer contract.
+    body = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("ascii")
+    return {
+        "version": contract["version"],
+        "contractDigest": "sha256:" + hashlib.sha256(body).hexdigest(),
+        "profile": contract["profile"],
+        "runtime": "python-test-client-" + sys.version.split()[0],
+        "device": "cpu",
+        "mode": "client-tracemalloc",
+        "warmCold": "unknown",
+        "concurrency": contract["sampling"]["concurrency"],
+        "samples": samples,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", default=os.environ.get("FIXTURE_DATABASE", "/data/app.sqlite"))
@@ -410,6 +476,10 @@ def main():
     check.add_argument("--base-url", required=True)
     check.add_argument("--check", choices=["health", "ingestion", "query", "persistence"], required=True)
     check.add_argument("--fixture", help="Read the synthetic document from a staged JSON file")
+    observation = sub.add_parser("observe")
+    observation.add_argument("--base-url", required=True)
+    observation.add_argument("--fixture", required=True)
+    observation.add_argument("--memory-limit-bytes", type=int, default=MAX_OBSERVATION_MEMORY)
     sub.add_parser("quiesce")
     sub.add_parser("resume-writes")
     migration = sub.add_parser("migrate")
@@ -438,6 +508,7 @@ def main():
                 httpd.serve_forever()
             return
         if args.command == "probe": result = probe(args.base_url, args.check, args.fixture)
+        elif args.command == "observe": result = observe(args.base_url, args.fixture, args.memory_limit_bytes)
         elif args.command == "quiesce": result = maintenance(args.database, True)
         elif args.command == "resume-writes": result = maintenance(args.database, False)
         elif args.command == "migrate": result = migrate(args.database, args.to, args.operation_id)
@@ -448,7 +519,8 @@ def main():
         else: raise ValueError("unsupported command")
         emit(result)
     except (ValueError, sqlite3.Error, OSError, urllib.error.URLError) as exc:
-        emit({"status": "fail", "error": str(exc), "workload": "synthetic-lexical-not-llm"})
+        if args.command != "observe":
+            emit({"status": "fail", "error": str(exc), "workload": "synthetic-lexical-not-llm"})
         sys.exit(1)
 
 

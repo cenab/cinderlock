@@ -3,6 +3,8 @@ import http.server
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -67,6 +69,74 @@ class DeliveryFixtureTests(unittest.TestCase):
         fixture.write_text(json.dumps({"id": "staged-redwood", "text": ["invalid"]}))
         with self.assertRaises(ValueError):
             app.probe(self.base, "ingestion", fixture)
+
+    def observation_output(self, present=True, memory_limit=None):
+        fixture = self.root / "observed-document.json"
+        document = {"id": "observed-redwood", "text": "PRIVATE-FIXTURE-TEXT: synthetic redwood persistence evidence."}
+        fixture.write_text(json.dumps(document))
+        if present:
+            self.call("/documents", document)
+        requests = []
+        handler = self.server.RequestHandlerClass
+        original = handler.do_GET
+
+        def record(request):
+            requests.append(request.path)
+            original(request)
+
+        handler.do_GET = record
+        command = [sys.executable, str(app.HERE / "app.py"), "observe", "--base-url", self.base,
+                   "--fixture", str(fixture)]
+        if memory_limit is not None:
+            command += ["--memory-limit-bytes", str(memory_limit)]
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=20)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stderr, "")
+        self.assertLessEqual(len(completed.stdout.encode()), 64 << 10)
+        self.assertNotIn(document["text"], completed.stdout)
+        self.assertNotIn(document["id"], completed.stdout)
+        self.assertNotIn("document absent", completed.stdout)
+        report = json.loads(completed.stdout, object_pairs_hook=app.unique_keys)
+        self.assertEqual(set(report), {"version", "contractDigest", "profile", "runtime", "device",
+                                      "mode", "warmCold", "concurrency", "samples"})
+        self.assertEqual(report["profile"], "kubernetes-cpu-lab")
+        self.assertRegex(report["contractDigest"], r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["mode"], "client-tracemalloc")
+        self.assertEqual(report["warmCold"], "unknown")
+        self.assertEqual(report["concurrency"], 1)
+        self.assertEqual([sample["index"] for sample in report["samples"]], [1, 2, 3])
+        self.assertEqual(requests, ["/documents/observed-redwood"] * 3)
+        for sample in report["samples"]:
+            self.assertEqual([(metric["name"], metric["unit"]) for metric in sample["metrics"]],
+                             [("fixture-match", "count"), ("probe-latency", "microseconds"),
+                              ("client-traced-peak", "bytes")])
+            self.assertTrue(all(type(metric["value"]) is int for metric in sample["metrics"]))
+            self.assertGreater(sample["metrics"][1]["value"], 0)
+            self.assertGreater(sample["metrics"][2]["value"], 0)
+        return report
+
+    def test_numeric_observations_measure_every_http_sample_without_raw_content(self):
+        report = self.observation_output()
+        contract = app.observation_contract()
+        for sample in report["samples"]:
+            self.assertEqual(sample["metrics"][0]["value"], 1)
+            for metric, bound in zip(sample["metrics"], contract["metrics"], strict=True):
+                self.assertLessEqual(bound["min"], metric["value"])
+                self.assertLessEqual(metric["value"], bound["max"])
+
+    def test_missing_document_retains_every_failed_numeric_sample(self):
+        report = self.observation_output(present=False)
+        self.assertEqual([sample["metrics"][0]["value"] for sample in report["samples"]], [0, 0, 0])
+
+    def test_zero_allocation_budget_fails_against_actual_measured_output(self):
+        report = self.observation_output(memory_limit=0)
+        contract = app.observation_contract(memory_limit_bytes=0)
+        resource_bound = contract["metrics"][2]
+        self.assertEqual(resource_bound["max"], 0)
+        for sample in report["samples"]:
+            self.assertEqual(sample["metrics"][0]["value"], 1)
+            self.assertGreater(sample["metrics"][2]["value"], resource_bound["max"])
 
     def test_migration_commit_reconciliation_and_test_copy_restore(self):
         app.probe(self.base, "ingestion")

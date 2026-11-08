@@ -172,6 +172,16 @@ required persistence Job must fail with the actual HTTP 404. A separate
 recovery plan restores the synthetic backup and rechecks workflows; the failed
 upgrade's acceptance remains failed.
 
+Required numeric Jobs retain every ordered HTTP fixture assertion, client probe
+latency, and test-client Python traced-allocation sample. The second release
+also declares an explicitly optional zero-allocation-budget control: it must
+retain a numeric failure while the independently required workflows pass.
+This does not replace the third release's real missing-document failure. The
+runner rereads results through `run report`, checks the original completed Job
+and unique Pod identities before reading their full numeric output, then compares
+the output digest and all retained samples. These resource observations exclude
+serving-process and GPU memory; they do not qualify a real inference profile.
+
 A successful final runner exit is the workflow assertion. A passing v1 or v2
 receipt alone does not establish the deliberate-failure/recovery case. Inspect
 `summary.json`, per-run results, private command receipts, and `recovery.html`.

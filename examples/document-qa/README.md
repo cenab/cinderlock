@@ -25,6 +25,7 @@ values deliberately when preparing the target release.
 | `probe --base-url URL --check ingestion` | Store and read a named synthetic fixture |
 | `probe --base-url URL --check query` | Verify retrieval of that previously stored fixture |
 | `probe --base-url URL --check persistence` | Verify the fixture remains without reinserting it |
+| `observe --base-url URL --fixture PATH` | Report ordered persistence assertions, client latency, and client traced allocation as numeric observations |
 | `quiesce`, `resume-writes` | Set the database-backed maintenance gate |
 | `backup --out PATH` | Create an instance/operation-bound SQLite backup and digest manifest; no overwrite |
 | `migrate --to 2 --operation-id schema-v1-v2` | Perform schema 1 → 2 under a write lock, then commit the ledger and schema together |
@@ -44,11 +45,28 @@ IDs, duplicate keys, and invalid or oversized text. Ingestion writes that
 document; persistence reads it without recreating it. Keep the same file for
 checks before and after a restart or recovery.
 
+The numeric runner uses the fixed application-owned contract returned by
+`observation_contract()` in [app.py](app.py). Each sample reads the previously
+stored fixture once; failed assertions remain in the same report, and no sample
+is retried. Timing includes the client probe and fixture decoding. Allocation
+means peak Python memory traced in that test-client process during each probe;
+it excludes the serving process, native/RSS memory, and GPU memory. Cache warmth
+remains unknown. These three synthetic reads do not qualify production capacity
+or an AI profile.
+
+Numeric Jobs emit only the bounded report, with no document text or response
+bodies. A completed measurement exits zero; Cinderlock evaluates every sample
+against the signed bounds. The integration workflow also uses
+`--memory-limit-bytes 0` for an explicitly optional negative control: actual
+traced allocation must exceed that bound while independent required checks pass.
+The [observation guide](../../docs/observations.md) defines the evidence and
+acceptance boundaries.
+
 ## Upgrade and recovery order
 
 Prepare baseline schema 1 and a synthetic document. The supported reference
 transition is: quiesce → backup → migrate → deploy schema-2 application →
-resume-writes → required ingestion/query/persistence checks. Resource readiness
+resume-writes → restart → persistence → remaining required checks. Resource readiness
 can pass while maintenance is set, so Helm can finish without unquiescing data
 early. Functional checks still fail until writes/read workflows are resumed.
 
@@ -81,7 +99,9 @@ Run `python3 -m unittest discover -s examples/document-qa -p test_app.py` and
 retrieval, persistence across server restart, quiescence, concurrent migration
 retries, commit reconciliation, corrupt-backup refusal, test-copy restore,
 concurrent seeding, missing model assets, duplicate input keys, and prohibited
-probe redirects. These tests use no GPU and no external network.
+probe redirects. Numeric runner cases check each actual HTTP read, failed
+assertions and allocation bounds, and output privacy. These tests use no GPU and
+no external network.
 
 Python's standard-library `http.server`, `sqlite3`, `urllib`, and file APIs supply
 the underlying implementation. Their published examples and APIs are available
