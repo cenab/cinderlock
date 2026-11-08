@@ -67,6 +67,12 @@ blocked. An observed failed bound remains failed; changed previously captured
 output cannot replace the original evidence. Trusted cluster administration is
 still required: log requests and UID checks are not one atomic API operation.
 
+A failed optional numeric bound stays failed after interruption. It need not
+block required application acceptance when resume can confirm the original
+successful Job and completed Pod, and retain the original samples without
+rerunning the test. Missing, replaced, or still-running sources block continuation.
+This does not permit blind retries of a failed application worker.
+
 The engine evaluates the whole declared sample set without averaging away a
 failure or retrying until a sample passes. The author must disclose any internal
 sampling/retries in the test revision and limitations. Seeds do not establish

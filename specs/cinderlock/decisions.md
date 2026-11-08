@@ -215,3 +215,17 @@ A source proposal is an inert whole-file patch for one clean tracked YAML file;
 it never commits, pushes or fetches. The design left repository integration open.
 Customers retain their source review process. Model/data preparation and actual
 controller/workflow evidence still need their own execution paths.
+
+
+### Optional numeric failures can finish a resumed run without being retried
+
+**Verdict:** sound · **Confidence:** high. **When:** optional observation resume.
+
+If a test process exits successfully but exceeds an optional numeric budget,
+its failure remains visible while required application checks can still pass.
+After interruption, continuation requires the same completed Job and original
+successful Pod, signed check intent and retained samples. A replaced or running
+source blocks continuation. The design left this interruption distinction open.
+This avoids turning an optional bound into a required failure or rerunning the
+test to obtain better numbers; failed application workers retain their separate
+reconciliation requirements.

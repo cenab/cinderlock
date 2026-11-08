@@ -221,6 +221,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	if err != nil {
 		return fail(err)
 	}
+	retainedOptionalFailures := map[string]bool{}
 	for _, check := range p.Checks {
 		if check.ObservationContract == nil {
 			continue
@@ -235,6 +236,16 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			}
 			r := e.recordedObservationCheck(ctx, record, check, spec.CheckResult{ID: check.ID, Domain: check.Domain, Required: check.Required, Status: "blocked"})
 			mergeCheckResults(&result, []spec.CheckResult{r})
+			if record.State == "failed" && !check.Required && r.Status == "fail" && r.Observations != nil && r.Observations.Report != nil {
+				worker, err := e.operationWorker(ctx, record.RunID, record.StepID, record.Attempt, record.StepID)
+				if err == nil {
+					_, err = e.observationPod(ctx, worker, &r.Observations.Source)
+				}
+				if err != nil {
+					return fail(err)
+				}
+				retainedOptionalFailures[record.StepID] = true
+			}
 			if r.Required && r.Status != "pass" && result.Domains["workflow"] != "fail" {
 				result.Domains["workflow"] = r.Status
 			}
@@ -258,6 +269,9 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			}
 		} else if record.State == "failed" {
 			if journalKind(record.Intent) == "check" {
+				if retainedOptionalFailures[record.StepID] {
+					continue
+				}
 				return fail(spec.Err(15, "a recorded acceptance worker failed; use a supported recovery plan"))
 			}
 			var operation spec.Operation

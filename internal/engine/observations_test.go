@@ -509,3 +509,96 @@ func TestPrerequisiteRefreshPreservesObservedSamplesOnLaterFailure(t *testing.T)
 	}
 	t.Fatalf("prerequisite refresh lost original samples before later migration failure: %#v, error=%v", result.Checks, err)
 }
+
+func TestResumeRetainsOptionalNumericFailureWithoutRepeatingWork(t *testing.T) {
+	for _, fault := range []string{"original", "replaced-job", "running-pod"} {
+		t.Run(fault, func(t *testing.T) {
+			e, client, policy := fixture(t)
+			p, v := fixturePlan(t, e, policy)
+			optional := p.Checks[0]
+			optional.ID, optional.Required = "optional-numeric", false
+			optional.Script = fixtureScript(optional.ID)
+			optional.ObservationContract = observationContract()
+			p.Checks = append(p.Checks, optional)
+			v.Index.Lock.Release.Spec.Checks = p.Checks
+			const runID = "optional-numeric-resume"
+			storeResumePlan(t, e, p, v, runID)
+			completedObservationWorker(t, client)
+			ctx := context.Background()
+			op := p.Operations[0]
+			attempt, err := e.Store.Intent(ctx, runID, op.ID, op, jobName(runID, op.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			image, err := e.image(v, op.Image)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.executeJob(ctx, runID, op.ID, image, op.Command, op.Args, op.SecretRefs, "", "", op.TimeoutSeconds); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.Store.Complete(ctx, attempt, "complete", nil); err != nil {
+				t.Fatal(err)
+			}
+			required := e.check(ctx, runID, p.Checks[0], v)
+			report := observationReport(t, optional.ObservationContract)
+			outside := int64(101)
+			report.Samples[1].Metrics[1].Value = &outside
+			output, err := spec.Canonical(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.PodLogReader = func(context.Context, string) ([]byte, error) { return output, nil }
+			failed := e.check(ctx, runID, optional, v)
+			if required.Status != "pass" || failed.Status != "fail" || failed.Observations == nil {
+				t.Fatal("fixture did not complete required work and fail only the optional bounds", required, failed)
+			}
+			result := newResult(p, runID, mustDigest(t, p))
+			result.State, result.Checks = "stopped", []spec.CheckResult{required, failed}
+			if err := e.Store.SetState(ctx, runID, result.State, true, result); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.clusterRecord(ctx, runID, result.PlanDigest, result.State, result); err != nil {
+				t.Fatal(err)
+			}
+			source := failed.Observations.Source
+			if fault == "replaced-job" {
+				job, err := client.BatchV1().Jobs("test").Get(ctx, source.JobName, metav1.GetOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				job.UID = "replacement"
+				if _, err = client.BatchV1().Jobs("test").Update(ctx, job, metav1.UpdateOptions{}); err != nil {
+					t.Fatal(err)
+				}
+			} else if fault == "running-pod" {
+				pod, err := client.CoreV1().Pods("test").Get(ctx, source.PodName, metav1.GetOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				pod.Status.Phase = corev1.PodRunning
+				if _, err = client.CoreV1().Pods("test").UpdateStatus(ctx, pod, metav1.UpdateOptions{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e.PodLogReader = func(context.Context, string) ([]byte, error) {
+				t.Fatal("resume reread finalized numeric output")
+				return nil, nil
+			}
+			client.ClearActions()
+			resumed, err := e.Resume(ctx, runID, v, policy, nil, true)
+			if fault == "original" {
+				if err != nil || resumed.Acceptance != "pass" || len(resumed.Checks) != 2 || resumed.Checks[1].Status != "fail" || resumed.Checks[1].Observations == nil || *resumed.Checks[1].Observations.Report.Samples[1].Metrics[1].Value != outside {
+					t.Fatalf("recorded optional numeric failure prevented completion or lost samples: %#v, %v", resumed, err)
+				}
+			} else if spec.ExitCode(err) != 13 || resumed.Acceptance == "pass" {
+				t.Fatalf("uncertain optional worker outcome was not preserved: fault=%s result=%#v error=%v", fault, resumed, err)
+			}
+			for _, action := range client.Actions() {
+				if action.GetVerb() == "create" && action.GetResource().Resource == "jobs" {
+					t.Fatal("resume repeated a completed worker")
+				}
+			}
+		})
+	}
+}
