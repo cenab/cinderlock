@@ -127,12 +127,32 @@ func ValidateRelease(r Release) error {
 			return Err(2, "invalid recovery %s", rec.ID)
 		}
 		recoveries[rec.ID] = true
+		recOps := map[string]bool{}
 		for _, o := range rec.Operations {
+			if recOps[o.ID] {
+				return Err(2, "recovery %s has duplicate operation %s", rec.ID, o.ID)
+			}
+			recOps[o.ID] = true
 			if e := ValidateOperation(o); e != nil {
 				return e
 			}
 		}
+		for _, o := range rec.Operations {
+			for _, dep := range o.DependsOn {
+				if !recOps[dep] || dep == o.ID {
+					return Err(2, "recovery %s operation %s has invalid dependency %s", rec.ID, o.ID, dep)
+				}
+			}
+		}
+		if err := operationDAG(rec.Operations); err != nil {
+			return err
+		}
+		recChecks := map[string]bool{}
 		for _, c := range rec.Checks {
+			if recChecks[c.ID] {
+				return Err(2, "recovery %s has duplicate check %s", rec.ID, c.ID)
+			}
+			recChecks[c.ID] = true
 			if e := ValidateCheck(c); e != nil {
 				return e
 			}
@@ -159,7 +179,7 @@ func ValidateRelease(r Release) error {
 			return Err(2, "embedding transition requires explicit reindex operation")
 		}
 	}
-	return nil
+	return validateReleaseContracts(r)
 }
 
 func containsString(items []string, value string) bool {
@@ -178,16 +198,12 @@ func ValidateOperation(o Operation) error {
 		return Err(2, "invalid operation ID %q", o.ID)
 	}
 	switch o.Type {
-	case "job", "migrate", "backup", "reindex":
-		if o.Image == "" || len(o.Command) == 0 {
-			return Err(2, "job operation %s requires locked image and argv", o.ID)
-		}
-		if !o.Idempotent && len(o.ReconcileCommand) == 0 {
-			return Err(2, "non-idempotent operation %s requires reconciliation", o.ID)
-		}
-	case "helm", "restart", "seed", "import", "gitops":
+	case "job", "migrate", "backup", "reindex", "helm", "restart", "seed", "import", "gitops":
 	default:
 		return Err(2, "unsupported operation type %q", o.Type)
+	}
+	if err := validateScriptContract(o); err != nil {
+		return err
 	}
 	if o.TimeoutSeconds < 0 || o.TimeoutSeconds > 86400 {
 		return Err(2, "invalid operation timeout")
@@ -201,6 +217,12 @@ func ValidateCheck(c Check) error {
 	if !identifier.MatchString(c.ID) {
 		return Err(2, "invalid check ID")
 	}
+	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > 86400 {
+		return Err(2, "invalid check timeout")
+	}
+	if err := validateCheckScript(c); err != nil {
+		return err
+	}
 	switch c.Domain {
 	case "integrity", "readiness", "workflow", "recovery":
 	default:
@@ -208,6 +230,9 @@ func ValidateCheck(c Check) error {
 	}
 	switch c.Type {
 	case "http":
+		if len(c.Command) != 0 || c.Method != "" && c.Method != "GET" && c.Method != "HEAD" {
+			return Err(2, "HTTP check requires the fixed GET or HEAD adapter")
+		}
 		u, e := url.Parse(c.URL)
 		if e != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil {
 			return Err(2, "invalid HTTP check URL")
@@ -216,8 +241,8 @@ func ValidateCheck(c Check) error {
 			return Err(2, "HTTP check needs expectedStatus")
 		}
 	case "job":
-		if c.Image == "" || len(c.Command) == 0 {
-			return Err(2, "job check requires locked image and command")
+		if c.Image == "" || !validContractArgv(c.Command, true) {
+			return Err(2, "job check requires locked image and bounded explicit argv without NUL bytes")
 		}
 	default:
 		return Err(2, "unsupported check type %q", c.Type)

@@ -228,9 +228,19 @@ class Lab:
 
     @staticmethod
     def job(name, kind, argv, after=None):
+        effects = {
+            "quiesce": "Set synthetic application maintenance mode.",
+            "backup": "Create an instance-bound SQLite backup and digest manifest at the declared output path.",
+            "migrate": "Change the SQLite schema and commit its operation ledger in the same transaction.",
+            "resume-writes": "Clear synthetic application maintenance mode.",
+            "restore": "Replace synthetic fixture data from its approved test backup; retain maintenance mode.",
+        }
         return dict(id=name, type=kind, image="application", command=["python", "/app/app.py", *argv],
             pvc="document-qa-data", mountPath="/data", idempotent=True,
-            dependsOn=[after] if after else [], timeoutSeconds=120)
+            dependsOn=[after] if after else [], timeoutSeconds=120,
+            script=dict(inputs=["Locked application image, explicit argv, operation identity, and synthetic SQLite instance on /data."],
+                permissions=["Read and write the synthetic database and backup files on document-qa-data; no Kubernetes API token."],
+                sideEffects=[effects[argv[0]]], successChecks=["persistence", "query"], retry="retry-safe"))
 
     def release(self, number):
         directory = self.work / f"v{number}"
@@ -262,6 +272,11 @@ class Lab:
                          else ["persistence", "health", "query", "ingestion"] if number == 2
                          else ["persistence", "health", "query"])]
         for check in checks:
+            check["script"] = dict(
+                inputs=["Locked application image, explicit probe argv, and declared synthetic fixture when present."],
+                permissions=["Access the internal synthetic application HTTP endpoint; no Kubernetes API token."],
+                sideEffects=["Upsert the fixed synthetic document." if check["id"] == "ingestion" else "Read synthetic application state without changing stored documents."],
+                successChecks=[check["id"]], retry="manual")
             if check["domain"] == "workflow":
                 check["fixtures"] = ["acceptance-fixture"]
                 check["command"] += ["--fixture", "/cinderlock-fixtures/acceptance-fixture/document.json"]
@@ -284,7 +299,11 @@ class Lab:
         if number == 3:
             operations += [dict(id="synthetic-data-loss", type="job", image="application", pvc="document-qa-data",
                 mountPath="/data", command=["python", "-c", "import sqlite3; c=sqlite3.connect('/data/app.sqlite'); c.execute(\"DELETE FROM documents WHERE id='cinderlock-fixture-redwood'\"); c.commit()"],
-                dependsOn=["deploy"], idempotent=True, timeoutSeconds=90)]
+                dependsOn=["deploy"], idempotent=True, timeoutSeconds=90, destructive=True,
+                script=dict(inputs=["Locked application image and mounted synthetic SQLite fixture database."],
+                    permissions=["Delete the fixed synthetic document on document-qa-data; no Kubernetes API token."],
+                    sideEffects=["Delete cinderlock-fixture-redwood to exercise a real missing-document acceptance failure."],
+                    successChecks=["persistence", "query"], retry="retry-safe"))]
         if number > 1:
             operations += [self.job("writes", "job", ["resume-writes"], operations[-1]["id"])]
         operations += [dict(id="restart", type="restart", service="document-qa",

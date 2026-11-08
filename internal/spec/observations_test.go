@@ -13,7 +13,7 @@ func TestReleaseRejectsOversizedAggregateObservationEvidence(t *testing.T) {
 	for i := 3; i < 16; i++ {
 		contract.Metrics = append(contract.Metrics, MetricBound{Name: fmt.Sprintf("metric-%s-%d", strings.Repeat("m", 30), i), Kind: "resource", Unit: "bytes", Assertion: strings.Repeat("Declared measurement. ", 20), Min: &zero, Max: &one})
 	}
-	base := Check{ID: "workflow", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"/check"}, ObservationContract: &contract}
+	base := Check{ID: "workflow", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"/check"}, Script: checkContract("workflow"), ObservationContract: &contract}
 	release := Release{Header: NewHeader("Release"), Spec: ReleaseSpec{Profile: "cpu-test", Deployment: Deployment{Type: "helm", Chart: "chart.tgz"}, Assets: []Asset{{ID: "runner", Type: "image", Source: "oci:./image#1"}}, Operations: []Operation{{ID: "deploy", Type: "helm"}}, Checks: []Check{base}, RequiredChecks: []string{"workflow"}, Recovery: []Recovery{{ID: "restore", ToRelease: "2.0.0", Operations: []Operation{{ID: "restart", Type: "restart", Service: "api"}}, Checks: []Check{base}}}, Transitions: []Transition{{ID: "upgrade", FromRelease: "1.0.0", Operations: []string{"deploy"}, Recovery: "restore"}}}}
 	release.Metadata = Metadata{Application: "fixture", Version: "2.0.0", Channel: "stable", Sequence: 2}
 	if err := ValidateRelease(release); err != nil {
@@ -151,7 +151,7 @@ func TestValidateCheckRequiresBoundedObservationDeclarations(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			contract, _ := observationFixture(t)
-			check := Check{ID: "inference", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/test"}, ObservationContract: &contract}
+			check := Check{ID: "inference", Type: "job", Domain: "workflow", Image: "runner", Command: []string{"/app/test"}, Script: checkContract("inference"), ObservationContract: &contract}
 			if err := ValidateCheck(check); err != nil {
 				t.Fatal(err)
 			}

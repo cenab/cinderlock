@@ -55,6 +55,10 @@ The signed BundleIndex commits to that lock and its payload descriptors. This
 establishes closure of declared artifacts, not discovery of every possible
 runtime dependency.
 
+[Application script and prerequisite contracts](release-contracts.md) define
+declared effects, retry classification, intermediate release routes, and offline
+entitlement validation. Those declarations never expand customer authority.
+
 The customer-controlled Site selects the target and operational capabilities.
 Its independent TrustPolicy admits release and approval keys under application
 and channel scopes. Release signing, execution authorization, and catalog packet

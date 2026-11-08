@@ -12,7 +12,7 @@ import (
 	"github.com/cenab/cinderlock/internal/state"
 )
 
-func TestPlanPreflightsMissingOperationImage(t *testing.T) {
+func TestPlanRejectsUndeclaredScriptImage(t *testing.T) {
 	e, client, policy := fixture(t)
 	e.Site.Spec.Registry = "registry.internal/app"
 	e.Site.Spec.AllowedActions = append(e.Site.Spec.AllowedActions, "migrate")
@@ -23,19 +23,13 @@ func TestPlanPreflightsMissingOperationImage(t *testing.T) {
 	verified.Index.Lock.Assets = []spec.LockedAsset{{ID: "runner", Type: "image", Digest: "sha256:" + strings.Repeat("a", 64)}}
 	verified.Index.Lock.Release.Spec.Operations[0].Image = "missing-runner"
 	client.ClearActions()
-	plan, err := e.Plan(context.Background(), verified, p.BundlePath, p.SitePath, policy)
-	if err != nil {
-		t.Fatal(err)
+	_, err := e.Plan(context.Background(), verified, p.BundlePath, p.SitePath, policy)
+	if spec.ExitCode(err) != 2 || !strings.Contains(err.Error(), "nonoptional image asset") {
+		t.Fatalf("undeclared script image passed release validation: %v", err)
 	}
-	if plan.Executable {
-		t.Fatal("missing operation image remained executable")
+	if len(client.Actions()) != 0 {
+		t.Fatal("invalid script contract reached target inspection")
 	}
-	for _, finding := range plan.Findings {
-		if finding.Code == "OPERATION_IMAGE_MISSING" {
-			return
-		}
-	}
-	t.Fatalf("missing operation image was not detected in preflight: %#v", plan.Findings)
 }
 
 func TestUnknownImportAssetCannotReportSuccess(t *testing.T) {

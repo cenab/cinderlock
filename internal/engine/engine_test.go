@@ -112,6 +112,9 @@ func fixturePlan(t *testing.T, e *Engine, policy spec.TrustPolicy) (spec.Plan, *
 	r.Spec.Deployment = spec.Deployment{Type: "helm", Chart: "chart.tgz"}
 	r.Spec.Assets = []spec.Asset{{ID: "runner", Type: "image", Source: "registry.invalid/runner:1"}}
 	r.Spec.Recovery = []spec.Recovery{{ID: "repair", ToRelease: "2.0.0", Operations: []spec.Operation{{ID: "repair", Type: "job", Image: "runner", Command: []string{"/bin/true"}, Idempotent: true}}, Checks: r.Spec.Checks}}
+	r.Spec.Operations[0].Script = fixtureScript("inference")
+	r.Spec.Checks[0].Script = fixtureScript("inference")
+	r.Spec.Recovery[0].Operations[0].Script = fixtureScript("inference")
 	r.Spec.Transitions[0].Recovery = "repair"
 	v := &bundle.Verified{Digest: "sha256:" + strings.Repeat("b", 64), Index: spec.BundleIndex{Lock: spec.ReleaseLock{Release: r, Assets: []spec.LockedAsset{{ID: "runner", Type: "image", Source: "registry.invalid/runner:1", Digest: "sha256:" + strings.Repeat("c", 64)}}}}}
 	p := spec.Plan{Header: spec.NewHeader("Plan"), BundlePath: "bundle.cinder", BundleDigest: v.Digest, SitePath: "site.yaml", Snapshot: snapshot, SourceVersion: "1.0.0", TargetVersion: "2.0.0", TransitionID: "upgrade", Operations: r.Spec.Operations, Checks: r.Spec.Checks, RequiredChecks: r.Spec.RequiredChecks, Recovery: r.Spec.Recovery, Executable: true, PolicyEpoch: policy.Spec.Epoch}
@@ -127,6 +130,10 @@ func fixturePlan(t *testing.T, e *Engine, policy spec.TrustPolicy) (spec.Plan, *
 	p.PolicyDigest, _ = spec.Digest(policy)
 	p.SnapshotDigest, _ = snapshotDigest(snapshot)
 	return p, v
+}
+
+func fixtureScript(check string) *spec.ScriptContract {
+	return &spec.ScriptContract{Inputs: []string{"locked runner image and explicit argv"}, Permissions: []string{"synthetic test access; no Kubernetes API token"}, SideEffects: []string{"only the test recipe declared in argv"}, SuccessChecks: []string{check}, Retry: "retry-safe"}
 }
 
 func TestInspectionIsReadOnlyAndStatusChurnDoesNotInvalidatePlan(t *testing.T) {
@@ -257,6 +264,7 @@ func TestMissingMigrationResultDoesNotStartDuplicate(t *testing.T) {
 	ctx := context.Background()
 	p, v := fixturePlan(t, e, policy)
 	p.Operations[0].Idempotent = false
+	p.Operations[0].Script.Retry = "reconcilable"
 	p.Operations[0].ReconcileCommand = []string{"/bin/check-ledger"}
 	v.Index.Lock.Release.Spec.Operations = p.Operations
 	digest, _ := spec.Digest(p)

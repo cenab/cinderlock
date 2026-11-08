@@ -17,6 +17,14 @@ INDEX = "application/vnd.oci.image.index.v1+json"
 
 
 class HelperIdentityTest(unittest.TestCase):
+    def test_script_contract_names_actual_fixture_effect_and_rejects_unknown_recipe(self):
+        restore = KIND.Lab.job("restore", "job", ["restore", "--backup", "/data/test.sqlite"])
+        self.assertEqual(restore["script"]["successChecks"], ["persistence", "query"])
+        self.assertIn("Replace synthetic fixture data", restore["script"]["sideEffects"][0])
+        self.assertEqual(restore["command"], ["python", "/app/app.py", "restore", "--backup", "/data/test.sqlite"])
+        with self.assertRaises(KeyError):
+            KIND.Lab.job("unknown", "job", ["unclassified-mutation"])
+
     def archive(self, directory, entries, blobs):
         path = Path(directory) / "helper.tar"
         documents = {"index.json": json.dumps(dict(schemaVersion=2, manifests=entries)).encode()}

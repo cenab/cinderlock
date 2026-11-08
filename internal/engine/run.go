@@ -194,6 +194,21 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		}
 		return result, err
 	}
+	checkBoundary := func() (spec.TargetSnapshot, error) {
+		if err := coord.check(ctx); err != nil {
+			return spec.TargetSnapshot{}, err
+		}
+		if err := e.checkPlan(ctx, p, v, policy, false); err != nil {
+			return spec.TargetSnapshot{}, err
+		}
+		snapshot, err := e.currentCheckpoint(ctx, result.RunID, p)
+		if err != nil {
+			return spec.TargetSnapshot{}, err
+		}
+		_, err = e.authorize(p, policy, a, approved)
+		return snapshot, err
+	}
+	hasPrerequisites := len(prerequisiteCheckIDs(p, v)) != 0
 	ops, err := e.Store.Operations(ctx, result.RunID)
 	if err != nil {
 		return fail(err)
@@ -234,7 +249,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			if err := spec.Decode(record.Intent, &operation); err != nil {
 				return fail(err)
 			}
-			if isJob(operation.Type) && !operation.Idempotent {
+			if (isJob(operation.Type) || operation.Type == "seed" && len(operation.Command) != 0) && !operation.Idempotent {
 				return fail(spec.Err(13, "failed non-idempotent operation %s may have partial effects; use declared reconciliation/recovery instead of repeating it", record.StepID))
 			}
 			if operation.Type == "seed" && len(operation.Command) == 0 {
@@ -253,17 +268,8 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		if ctx.Err() != nil {
 			return fail(spec.Err(17, "stop requested before next operation"))
 		}
-		if err := coord.check(ctx); err != nil {
-			return fail(err)
-		}
-		if err := e.checkPlan(ctx, p, v, policy, false); err != nil {
-			return fail(err)
-		}
-		before, err := e.currentCheckpoint(ctx, result.RunID, p)
+		before, err := checkBoundary()
 		if err != nil {
-			return fail(err)
-		}
-		if _, err := e.authorize(p, policy, a, approved); err != nil {
 			return fail(err)
 		}
 		for _, dep := range o.DependsOn {
@@ -273,6 +279,18 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		}
 		if !slices.Contains(e.Site.Spec.AllowedActions, o.Type) || !slices.Contains(policy.Spec.AllowedActions, o.Type) {
 			return fail(spec.Err(16, "operation capability no longer permitted"))
+		}
+		if o.Type != "import" && hasPrerequisites {
+			checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID)
+			if err != nil {
+				recordPrerequisiteFailure(&result, checks)
+				return fail(err)
+			}
+			result.Checks = checks
+			before, err = checkBoundary()
+			if err != nil {
+				return fail(err)
+			}
 		}
 		external := ""
 		if jobOperation(o.Type) && !(o.Type == "seed" && len(o.Command) == 0) {
@@ -401,17 +419,17 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			result.Checks = append(result.Checks, r)
 			continue
 		}
-		if err := coord.check(ctx); err != nil {
+		if _, err := checkBoundary(); err != nil {
 			return fail(err)
 		}
-		if err := e.checkPlan(ctx, p, v, policy, false); err != nil {
-			return fail(err)
-		}
-		if _, err := e.currentCheckpoint(ctx, result.RunID, p); err != nil {
-			return fail(err)
-		}
-		if _, err := e.authorize(p, policy, a, approved); err != nil {
-			return fail(err)
+		if hasPrerequisites {
+			if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID); err != nil {
+				recordPrerequisiteFailure(&result, checks)
+				return fail(err)
+			}
+			if _, err := checkBoundary(); err != nil {
+				return fail(err)
+			}
 		}
 		if err := e.clusterRecord(ctx, result.RunID, result.PlanDigest, "verifying", check); err != nil {
 			return fail(err)
@@ -442,6 +460,10 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		}
 	}
 	result.Domains["workflow"] = "pass"
+	if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID); err != nil {
+		recordPrerequisiteFailure(&result, checks)
+		return fail(err)
+	}
 	if err := e.checkPlan(ctx, p, v, policy, false); err != nil {
 		return fail(err)
 	}

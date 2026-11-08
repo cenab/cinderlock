@@ -240,7 +240,7 @@ func addRelease(root *cobra.Command, o *options) {
 		if e := spec.Write(initOut, r); e != nil {
 			return e
 		}
-		return o.emit(map[string]any{"path": initOut, "deployable": false, "next": "Declare artifacts, operations, required checks and recovery before locking."})
+		return o.emit(map[string]any{"path": initOut, "deployable": false, "next": "Declare artifacts, script safety contracts, supported transitions, required checks and recovery before locking."})
 	}}
 	init.Flags().StringVar(&initOut, "out", "release.yaml", "New declaration path")
 	g.AddCommand(init)

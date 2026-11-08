@@ -90,11 +90,17 @@ type AIProfile struct {
 type LicenseRequirement struct {
 	Mode      string `json:"mode" yaml:"mode"`
 	SecretRef string `json:"secretRef" yaml:"secretRef"`
-	ExpiresAt string `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`
+	Check     string `json:"check" yaml:"check"`
+	// MaxAgeSeconds bounds the original validation worker's age, not issuance.
+	MaxAgeSeconds int64  `json:"maxAgeSeconds" yaml:"maxAgeSeconds"`
+	RenewalAsset  string `json:"renewalAsset" yaml:"renewalAsset"`
+	ExpiresAt     string `json:"expiresAt,omitempty" yaml:"expiresAt,omitempty"`
 }
 type Transition struct {
-	ID                    string   `json:"id" yaml:"id"`
-	FromRelease           string   `json:"fromRelease" yaml:"fromRelease"`
+	ID          string `json:"id" yaml:"id"`
+	FromRelease string `json:"fromRelease" yaml:"fromRelease"`
+	// An intermediate route cannot execute as a direct transition.
+	IntermediateReleases  []string `json:"intermediateReleases,omitempty" yaml:"intermediateReleases,omitempty"`
 	FromDataRevision      string   `json:"fromDataRevision,omitempty" yaml:"fromDataRevision,omitempty"`
 	ToDataRevision        string   `json:"toDataRevision,omitempty" yaml:"toDataRevision,omitempty"`
 	FromEmbeddingRevision string   `json:"fromEmbeddingRevision,omitempty" yaml:"fromEmbeddingRevision,omitempty"`
@@ -125,6 +131,8 @@ type Operation struct {
 	StorageClass     string   `json:"storageClass,omitempty" yaml:"storageClass,omitempty"`
 	StorageBytes     int64    `json:"storageBytes,omitempty" yaml:"storageBytes,omitempty"`
 	Destructive      bool     `json:"destructive,omitempty" yaml:"destructive,omitempty"`
+
+	Script *ScriptContract `json:"script,omitempty" yaml:"script,omitempty"`
 }
 type Check struct {
 	ID               string   `json:"id" yaml:"id"`
@@ -144,6 +152,7 @@ type Check struct {
 	SyntheticData    string   `json:"syntheticData,omitempty" yaml:"syntheticData,omitempty"`
 
 	ObservationContract *ObservationContract `json:"observationContract,omitempty" yaml:"observationContract,omitempty"`
+	Script              *ScriptContract      `json:"script,omitempty" yaml:"script,omitempty"`
 }
 type Recovery struct {
 	ID             string      `json:"id" yaml:"id"`

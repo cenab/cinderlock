@@ -423,6 +423,9 @@ func (e *Engine) Plan(ctx context.Context, v *bundle.Verified, bundlePath, siteP
 		block("UNSUPPORTED_TRANSITION", "no declared transition matches the observed source version")
 	} else {
 		p.TransitionID = transition.ID
+		if len(transition.IntermediateReleases) != 0 {
+			block("INTERMEDIATE_RELEASE_REQUIRED", "apply the separately admitted intermediate releases in declared order before planning this target: "+strings.Join(transition.IntermediateReleases, " -> "))
+		}
 		if transition.FromDataRevision != "" && transition.FromDataRevision != e.Site.Spec.DataRevision {
 			block("DATA_REVISION_MISMATCH", "source data revision does not match the declared transition")
 		}
@@ -484,25 +487,16 @@ func (e *Engine) Plan(ctx context.Context, v *bundle.Verified, bundlePath, siteP
 		}
 	}
 	if req := r.Spec.License; req != nil {
-		if req.Mode != "offline" {
-			block("ONLINE_LICENSE_UNSUPPORTED", "application license mode is not declared offline")
-		}
 		if _, ok := e.Site.Spec.SecretRefs[req.SecretRef]; !ok {
 			block("LICENSE_MISSING", "offline license reference is missing")
 		}
-		if req.ExpiresAt != "" {
-			expiry, err := time.Parse(time.RFC3339, req.ExpiresAt)
-			if err != nil || !time.Now().Before(expiry) {
-				block("LICENSE_EXPIRED", "declared offline license validity is expired or invalid")
-			}
+		if err := licenseTimeError(req, time.Now()); err != nil {
+			block("LICENSE_EXPIRED", err.Error())
 		}
 	}
 	for _, o := range p.Operations {
 		if !slices.Contains(e.Site.Spec.AllowedActions, o.Type) || !slices.Contains(policy.Spec.AllowedActions, o.Type) {
 			block("CAPABILITY_DENIED", "operation type not permitted by both site and policy: "+o.Type)
-		}
-		if (o.Type == "migrate" || o.Type == "reindex") && !o.Idempotent && len(o.ReconcileCommand) == 0 {
-			block("RECONCILIATION_MISSING", "non-idempotent operation lacks reconciliation command: "+o.ID)
 		}
 		for _, ref := range o.SecretRefs {
 			if _, ok := e.Site.Spec.SecretRefs[ref]; !ok {
@@ -570,6 +564,11 @@ func (e *Engine) Plan(ctx context.Context, v *bundle.Verified, bundlePath, siteP
 func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy, initial bool) error {
 	if err := e.verifyRecipeBinding(p, v); err != nil {
 		return err
+	}
+	if p.Kind == "Plan" || p.Kind == "RecoveryPlan" {
+		if err := licenseTimeError(v.Index.Lock.Release.Spec.License, time.Now()); err != nil {
+			return err
+		}
 	}
 	if err := e.checkConfigurationPlan(ctx, p, v); err != nil {
 		return err
@@ -779,6 +778,9 @@ func (e *Engine) verifyRecipeBinding(p spec.Plan, v *bundle.Verified) error {
 		}
 		if t.FromRelease != p.SourceVersion && !(p.SourceVersion == "" && t.FromRelease == "install") {
 			continue
+		}
+		if len(t.IntermediateReleases) != 0 {
+			return spec.Err(10, "declared intermediate releases must be applied before the target release")
 		}
 		expected := []spec.Operation{}
 		for _, id := range t.Operations {

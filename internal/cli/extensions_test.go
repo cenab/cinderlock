@@ -10,6 +10,10 @@ import (
 	"github.com/cenab/cinderlock/internal/spec"
 )
 
+func checkScript(id string) *spec.ScriptContract {
+	return &spec.ScriptContract{Inputs: []string{"locked runner image and explicit check argv"}, Permissions: []string{"synthetic application check; no Kubernetes API token"}, SideEffects: []string{"declared synthetic application probe"}, SuccessChecks: []string{id}, Retry: "manual"}
+}
+
 func TestSourceAuthMustRemainOutsideRelease(t *testing.T) {
 	h := newHarness(t)
 	var release spec.Release
@@ -19,6 +23,7 @@ func TestSourceAuthMustRemainOutsideRelease(t *testing.T) {
 	}
 	// A complete release is needed to reach source admission.
 	release.Spec.Checks = []spec.Check{{ID: "application", Type: "job", Domain: "workflow", Required: true, Image: "runner", Command: []string{"true"}}}
+	release.Spec.Checks[0].Script = checkScript("application")
 	release.Spec.Assets = []spec.Asset{{ID: "runner", Type: "image", Source: "example.invalid/runner:1"}}
 	release.Spec.Operations = []spec.Operation{{ID: "deploy", Type: "helm"}}
 	release.Spec.Transitions = []spec.Transition{{ID: "install", FromRelease: "install", Operations: []string{"deploy"}, Recovery: "repair"}}
