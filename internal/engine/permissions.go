@@ -81,7 +81,7 @@ func (e *Engine) PermissionFindings(ctx context.Context, p spec.Plan, objects []
 }
 
 func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any) ([]spec.Finding, error) {
-	common, err := e.permissionRequirements(spec.Plan{}, nil, nil)
+	common, err := e.permissionRequirements(spec.Plan{Header: p.Header}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -125,9 +125,12 @@ func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any
 	worker := func(step string) {
 		findings = append(findings, spec.Finding{Code: "SERVICE_ACCOUNT_REQUIRED", Severity: "info", Message: "Cinderlock worker uses ServiceAccount " + e.Site.Spec.Namespace + "/default; automountServiceAccountToken=false; service-account API grants are unverified", Source: step})
 	}
+	if p.Kind == "ArtifactsPlan" {
+		capability("target", "gitops-stage")
+	}
 	for _, op := range p.Operations {
 		step := "operation/" + op.ID
-		if err := disclose(step, spec.Plan{SourceVersion: p.SourceVersion, Operations: []spec.Operation{op}}); err != nil {
+		if err := disclose(step, spec.Plan{Header: p.Header, SourceVersion: p.SourceVersion, Operations: []spec.Operation{op}}); err != nil {
 			return nil, err
 		}
 		capability(step, op.Type)
@@ -169,7 +172,7 @@ func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any
 	}
 	for _, check := range p.Checks {
 		step := "check/" + check.ID
-		if err := disclose(step, spec.Plan{Checks: []spec.Check{check}}); err != nil {
+		if err := disclose(step, spec.Plan{Header: p.Header, Checks: []spec.Check{check}}); err != nil {
 			return nil, err
 		}
 		capability(step, "job")
@@ -224,12 +227,18 @@ func (e *Engine) permissionRequirements(p spec.Plan, objects, previous []map[str
 		return nil
 	}
 	// These reads are the fixed target/checkpoint observer, not a broad grant.
-	for _, kind := range []string{"Deployment", "StatefulSet", "ConfigMap", "Service", "PersistentVolumeClaim", "Secret"} {
-		r := permissionResources[kind]
-		add(r.group, r.resource, "", "list")
+	if p.Kind != "ArtifactsPlan" {
+		for _, kind := range []string{"Deployment", "StatefulSet", "ConfigMap", "Service", "PersistentVolumeClaim", "Secret"} {
+			r := permissionResources[kind]
+			add(r.group, r.resource, "", "list")
+		}
+		add("", "secrets", "", "get") // Helm's default release storage.
+	} else if ref, ok := e.Site.Spec.SecretRefs[e.Site.Spec.RegistryAuthRef]; ok && ref.File == "" && ref.Name != "" {
+		if err := addSecrets([]string{e.Site.Spec.RegistryAuthRef}); err != nil {
+			return nil, err
+		}
 	}
 	required["namespace"] = authorizationv1.ResourceAttributes{Resource: "namespaces", Name: namespace, Verb: "get"}
-	add("", "secrets", "", "get") // Helm's default release storage.
 	lease := "cinderlock-" + fingerprint(e.Site.Spec.ReleaseName)[7:27]
 	add("coordination.k8s.io", "leases", lease, "get", "create", "update", "delete")
 	add("", "configmaps", "", "get", "list", "create", "update")

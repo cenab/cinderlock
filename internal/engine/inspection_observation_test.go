@@ -189,7 +189,7 @@ func TestExecutionBoundariesRejectNewInventoryFailure(t *testing.T) {
 	if _, err := e.currentCheckpoint(ctx, "unused", p); spec.ExitCode(err) != 10 {
 		t.Fatalf("checkpoint accepted incomplete observation: %v", err)
 	}
-	if _, err := e.advanceCheckpoint(ctx, "unused", p.Operations[0], p.Snapshot); spec.ExitCode(err) != 10 {
+	if _, err := e.advanceCheckpoint(ctx, "unused", p, p.Operations[0], p.Snapshot); spec.ExitCode(err) != 10 {
 		t.Fatalf("checkpoint advanced with incomplete observation: %v", err)
 	}
 }

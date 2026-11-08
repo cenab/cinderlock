@@ -85,7 +85,7 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 	if err != nil {
 		return spec.RunResult{}, err
 	}
-	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" && p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" {
+	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" && p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" && p.Kind != "ArtifactsPlan" {
 		return spec.RunResult{}, spec.Err(2, "unsupported plan kind")
 	}
 	if p.Kind == "RecoveryPlan" {
@@ -184,6 +184,9 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			result.State = "probe_failed"
 			active = false
 		}
+		if p.Kind == "ArtifactsPlan" && result.State != "needs_reconciliation" {
+			result.State, active = "artifacts_failed", false
+		}
 		persist, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if recordErr := e.Store.SetState(persist, result.RunID, result.State, active, result); recordErr != nil {
@@ -236,6 +239,18 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	for _, record := range ops {
 		if record.State == "complete" {
 			completed[record.StepID] = true
+			if p.Kind == "ArtifactsPlan" {
+				var step spec.StepResult
+				if err := spec.Decode(record.Evidence, &step); err != nil {
+					return fail(err)
+				}
+				at := slices.IndexFunc(result.Steps, func(previous spec.StepResult) bool { return previous.ID == step.ID && previous.Attempt == step.Attempt })
+				if at >= 0 {
+					result.Steps[at] = step
+				} else {
+					result.Steps = append(result.Steps, step)
+				}
+			}
 		} else if record.State == "failed" {
 			if journalKind(record.Intent) == "check" {
 				return fail(spec.Err(15, "a recorded acceptance worker failed; use a supported recovery plan"))
@@ -301,7 +316,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		step := spec.StepResult{ID: o.ID, Attempt: intent.Attempt, Status: "running", StartedAt: spec.Now(), ExternalID: external}
 		external, err = e.operation(ctx, p, result.RunID, o, v, policy)
 		if err == nil {
-			_, err = e.advanceCheckpoint(ctx, result.RunID, o, before)
+			_, err = e.advanceCheckpoint(ctx, result.RunID, p, o, before)
 		}
 		step.ExternalID = external
 		step.FinishedAt = spec.Now()
@@ -345,6 +360,17 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	}
 	if _, err := e.authorize(p, policy, a, approved); err != nil {
 		return fail(err)
+	}
+	if p.Kind == "ArtifactsPlan" {
+		result.State, result.FinishedAt = "artifacts_staged", spec.Now()
+		result.Findings = append(result.Findings, p.Findings...)
+		if err := e.clusterRecord(ctx, result.RunID, result.PlanDigest, result.State, result); err != nil {
+			return fail(err)
+		}
+		if err := e.Store.SetState(ctx, result.RunID, result.State, false, result); err != nil {
+			return fail(err)
+		}
+		return result, nil
 	}
 	if p.Kind == "RetirementPlan" {
 		if err := e.verifyRetained(ctx, p.RetainedResources); err != nil {
@@ -521,11 +547,16 @@ func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spe
 		if err != nil {
 			return "", err
 		}
+		imported := ""
 		for _, asset := range targets {
 			destination := strings.TrimSuffix(e.Site.Spec.Registry, "/") + "/" + strings.ToLower(asset.ID)
-			if _, err := bundle.ImportImage(ctx, v, asset.ID, destination, options); err != nil {
+			var err error
+			if imported, err = bundle.ImportImage(ctx, v, asset.ID, destination, options); err != nil {
 				return destination, spec.Err(13, "image import outcome requires digest reconciliation: %v", err)
 			}
+		}
+		if p.Kind == "ArtifactsPlan" {
+			return imported, nil
 		}
 		return e.Site.Spec.Registry, nil
 	case "helm":
@@ -641,6 +672,36 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 		}
 		if !matched {
 			return spec.RunResult{}, spec.Err(13, "durable operation intent differs from the signed plan; reconcile journal integrity before execution")
+		}
+		if p.Kind == "ArtifactsPlan" && op.Type == "import" {
+			if err := coord.check(ctx); err != nil {
+				return spec.RunResult{}, err
+			}
+			before, err := e.currentCheckpoint(ctx, runID, p)
+			if err != nil {
+				return spec.RunResult{}, err
+			}
+			if err = e.checkPlan(ctx, p, v, policy, false); err != nil {
+				return spec.RunResult{}, err
+			}
+			if _, err = e.authorize(p, policy, a, approved); err != nil {
+				return spec.RunResult{}, err
+			}
+			external, err := e.operation(ctx, p, runID, op, v, policy)
+			if err != nil {
+				return spec.RunResult{}, err
+			}
+			if _, err = e.advanceCheckpoint(ctx, runID, p, op, before); err != nil {
+				return spec.RunResult{}, err
+			}
+			step := spec.StepResult{ID: op.ID, Attempt: attempt.Attempt, Status: "pass", FinishedAt: spec.Now(), ExternalID: external}
+			if err = e.Store.Complete(ctx, attempt, "complete", step); err != nil {
+				return spec.RunResult{}, err
+			}
+			if err = e.clusterRecord(ctx, runID, record.PlanDigest, "complete", step); err != nil {
+				return spec.RunResult{}, err
+			}
+			continue
 		}
 		if !jobOperation(op.Type) {
 			return spec.RunResult{}, spec.Err(13, "uncertain %s needs an application-specific reviewed recovery plan", op.Type)

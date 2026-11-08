@@ -103,6 +103,10 @@ and checks that retained objects still have their reviewed UIDs. This preserves
 object identity, not a claim about stored data contents or successful reinstall.
 There is no generic purge adapter.
 
+[GitOps delivery](gitops.md) uses a separately authorized image-only plan while
+the external controller retains application ownership. Its staging result never
+establishes application acceptance or advances the accepted-release floor.
+
 ## Durable admission and events
 
 Run creation, optional recovery gate transfer and authorization nonce consumption

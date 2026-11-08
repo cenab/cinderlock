@@ -141,6 +141,7 @@ func addLifecycleExtensions(root *cobra.Command, o *options) {
 
 	gitops := &cobra.Command{Use: "gitops", Short: "Export desired state and observe its external controller; never take ownership"}
 	root.AddCommand(gitops)
+	addGitOpsDelivery(gitops, o)
 	var exportSite, exportOut string
 	export := &cobra.Command{Use: "export BUNDLE", Short: "Render a verified chart with internal digest-pinned image bindings", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
 		ctx, cancel := o.context(c)

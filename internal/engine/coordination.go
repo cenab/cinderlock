@@ -35,7 +35,7 @@ func (e *Engine) acquire(ctx context.Context, runID string, recoverySource ...st
 			continue
 		}
 		status := record.Data["state"]
-		if status != "succeeded" && status != "recovered" && status != "superseded" && status != "probe_complete" && status != "probe_failed" && status != "retired" {
+		if status != "succeeded" && status != "recovered" && status != "superseded" && status != "probe_complete" && status != "probe_failed" && status != "retired" && status != "artifacts_staged" && status != "artifacts_failed" {
 			return nil, spec.Err(18, "cluster records an unresolved prior run %s", record.Data["runID"])
 		}
 	}

@@ -570,6 +570,9 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 			return err
 		}
 	}
+	if p.Kind == "ArtifactsPlan" && (!slices.Contains(e.Site.Spec.AllowedActions, "gitops-stage") || !slices.Contains(policy.Spec.AllowedActions, "gitops-stage")) {
+		return spec.Err(16, "GitOps staging capability is no longer admitted by site and policy")
+	}
 	if err := e.checkConfigurationPlan(ctx, p, v); err != nil {
 		return err
 	}
@@ -618,7 +621,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 			return spec.Err(16, "trust policy expired")
 		}
 	}
-	current, err := e.Inspect(ctx)
+	current, err := e.inspectPlan(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -640,7 +643,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 	if findings := e.secretFindings(p, current, v); len(findings) > 0 {
 		return spec.Err(10, "%s", findings[0].Message)
 	}
-	if p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" {
+	if p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" && p.Kind != "ArtifactsPlan" {
 		profile := v.Index.Lock.Release.Spec.AIProfile
 		if profile.GPUCount > 0 || len(profile.GPUModels) > 0 || profile.MinGPUMemoryMiB > 0 || len(profile.DriverVersions) > 0 {
 			if err := e.validateConfiguredHardware(ctx, v); err != nil {
@@ -717,6 +720,9 @@ func (e *Engine) verifyRecipeBinding(p spec.Plan, v *bundle.Verified) error {
 	}
 	if !equal(p.Recovery, r.Spec.Recovery) {
 		return spec.Err(12, "plan recovery definitions differ from the signed release")
+	}
+	if p.Kind == "ArtifactsPlan" {
+		return e.verifyArtifactsBinding(p, v)
 	}
 	if p.Kind == "ProbePlan" {
 		return e.verifyProbeBinding(p, v)
@@ -810,7 +816,7 @@ func (e *Engine) currentCheckpoint(ctx context.Context, runID string, p spec.Pla
 			return spec.TargetSnapshot{}, err
 		}
 	}
-	current, err := e.Inspect(ctx)
+	current, err := e.inspectPlan(ctx, p)
 	if err != nil {
 		return current, err
 	}
@@ -831,8 +837,8 @@ func (e *Engine) currentCheckpoint(ctx context.Context, runID string, p spec.Pla
 	return expected, nil
 }
 
-func (e *Engine) advanceCheckpoint(ctx context.Context, runID string, op spec.Operation, before spec.TargetSnapshot) (spec.TargetSnapshot, error) {
-	after, err := e.Inspect(ctx)
+func (e *Engine) advanceCheckpoint(ctx context.Context, runID string, p spec.Plan, op spec.Operation, before spec.TargetSnapshot) (spec.TargetSnapshot, error) {
+	after, err := e.inspectPlan(ctx, p)
 	if err != nil {
 		return after, err
 	}

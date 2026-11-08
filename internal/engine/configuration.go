@@ -348,7 +348,7 @@ func (e *Engine) addConfigurationFindings(ctx context.Context, p *spec.Plan, v *
 }
 
 func (e *Engine) checkConfigurationPlan(ctx context.Context, p spec.Plan, v *bundle.Verified) error {
-	if p.Kind == "ProbePlan" || p.Kind == "RetirementPlan" {
+	if p.Kind == "ProbePlan" || p.Kind == "RetirementPlan" || p.Kind == "ArtifactsPlan" {
 		return nil
 	}
 	if p.ConfigurationReview == nil && v.Index.Lock.Release.Spec.Deployment.Configuration == nil {

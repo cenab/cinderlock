@@ -167,6 +167,10 @@ func addRun(root *cobra.Command, o *options) {
 				return spec.Err(13, "run requires reconciliation")
 			case "failed", "recovery_failed":
 				return spec.Err(15, "run did not meet required acceptance")
+			case "artifacts_staged":
+				return spec.Err(10, "images are staged; application acceptance is not established")
+			case "artifacts_failed":
+				return spec.Err(15, "image staging failed; application acceptance is not established")
 			default:
 				return spec.Err(10, "run is not complete")
 			}

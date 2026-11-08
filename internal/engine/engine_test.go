@@ -185,7 +185,7 @@ func TestCheckpointDetectsExternalDriftButAdvancesForOwnRestart(t *testing.T) {
 	_ = e.Store.SetCheckpoint(ctx, "run", digest, current)
 	d, _ = client.AppsV1().Deployments("test").Get(ctx, "app", metav1.GetOptions{})
 	_, _ = client.AppsV1().Deployments("test").Update(ctx, RestartSpec(d, "run"), metav1.UpdateOptions{})
-	if _, err := e.advanceCheckpoint(ctx, "run", spec.Operation{Type: "restart"}, current); err != nil {
+	if _, err := e.advanceCheckpoint(ctx, "run", p, spec.Operation{Type: "restart"}, current); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.currentCheckpoint(ctx, "run", p); err != nil {

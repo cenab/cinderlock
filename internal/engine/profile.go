@@ -190,14 +190,16 @@ func (e *Engine) secretFindings(p spec.Plan, snapshot spec.TargetSnapshot, v *bu
 		add(check.SecretRefs)
 	}
 	if p.Kind != "RetirementPlan" {
-		if v.Index.Lock.Release.Spec.License != nil {
+		if p.Kind != "ArtifactsPlan" && v.Index.Lock.Release.Spec.License != nil {
 			add([]string{v.Index.Lock.Release.Spec.License.SecretRef})
 		}
 		if e.Site.Spec.RegistryAuthRef != "" {
 			add([]string{e.Site.Spec.RegistryAuthRef})
 		}
-		for _, name := range e.Site.Spec.ImagePullSecrets {
-			required = append(required, "secret/image-pull-"+name)
+		if p.Kind != "ArtifactsPlan" {
+			for _, name := range e.Site.Spec.ImagePullSecrets {
+				required = append(required, "secret/image-pull-"+name)
+			}
 		}
 	}
 	facts := map[string]spec.Fact{}
