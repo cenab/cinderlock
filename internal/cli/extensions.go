@@ -139,7 +139,7 @@ func addLifecycleExtensions(root *cobra.Command, o *options) {
 	}}
 	runs.AddCommand(events)
 
-	gitops := &cobra.Command{Use: "gitops", Short: "Export desired state and observe its external controller; never take ownership"}
+	gitops := &cobra.Command{Use: "gitops", Short: "Stage signed images, propose source changes, and observe the external controller"}
 	root.AddCommand(gitops)
 	addGitOpsDelivery(gitops, o)
 	var exportSite, exportOut string

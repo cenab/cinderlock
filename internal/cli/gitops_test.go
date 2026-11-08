@@ -11,10 +11,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/cenab/cinderlock/internal/engine"
 	"github.com/cenab/cinderlock/internal/spec"
 	"github.com/cenab/cinderlock/internal/state"
 	"github.com/opencontainers/go-digest"
@@ -157,4 +160,141 @@ func TestGitOpsArtifactsPlanCLIUsesImageOnlyRoute(t *testing.T) {
 	if observed.State != "artifacts_staged" || observed.Active {
 		t.Fatal("terminal staging state was lost", observed)
 	}
+}
+
+func TestGitOpsProposeCLIRequiresExactReviewedSourceAndManifest(t *testing.T) {
+	f, site, _ := gitOpsCLIFixture(t)
+	repository, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitRead := func(args ...string) []byte {
+		t.Helper()
+		base := []string{"--no-pager", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false"}
+		command := exec.Command(git, append(base, args...)...)
+		command.Dir = repository
+		command.Env = []string{"PATH=" + filepath.Dir(git), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "LANG=C", "LC_ALL=C"}
+		body, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("fixture Git %v: %v: %s", args, err, body)
+		}
+		return body
+	}
+	gitRead("init", "--initial-branch=fixture")
+	base := []byte("apiVersion: v1\nkind: ConfigMap\nmetadata: {name: application}\ndata: {state: base}\n")
+	write(t, filepath.Join(repository, "application.yaml"), base)
+	gitRead("add", "--", "application.yaml")
+	gitRead("commit", "-m", "Fixture base")
+	head := strings.TrimSpace(string(gitRead("rev-parse", "HEAD")))
+	f.release.Spec.Deployment.GitOps.Revision = head
+	f.releasePath, f.lockPath, f.bundlePath = filepath.Join(f.h.dir, "proposal-release.json"), filepath.Join(f.h.dir, "proposal.lock.json"), filepath.Join(f.h.dir, "proposal.cinder")
+	if err = spec.Write(f.releasePath, f.release); err != nil {
+		t.Fatal(err)
+	}
+	f.h.ok("release", "lock", f.releasePath, "--out", f.lockPath)
+	f.h.ok("bundle", "build", f.lockPath, "--key", f.keyPath, "--key-id", "release", "--out", f.bundlePath)
+	manifest := filepath.Join(f.h.dir, "reviewed.yaml")
+	f.h.ok("gitops", "export", f.bundlePath, "--site", site, "--out", manifest)
+	desired := read(t, manifest)
+	digest := spec.Hash(desired)
+	var verified struct {
+		Digest string `json:"digest"`
+	}
+	if err = json.Unmarshal(f.h.ok("bundle", "verify", f.bundlePath, "--trust", f.policyPath), &verified); err != nil {
+		t.Fatal(err)
+	}
+	indexBefore := read(t, filepath.Join(repository, ".git", "index"))
+	out := filepath.Join(f.h.dir, "proposal.json")
+	args := []string{"gitops", "propose", f.bundlePath, "--site", site, "--repository", repository, "--head", head, "--path", "application.yaml", "--manifest", manifest, "--approved-manifest-digest", digest, "--out", out}
+	proposal := decode[engine.GitOpsProposal](t, f.h.ok(args...))
+	var stored engine.GitOpsProposal
+	if err = spec.Read(out, &stored); err != nil || !reflect.DeepEqual(proposal, stored) {
+		t.Fatal("CLI proposal output differs from its review artifact", err)
+	}
+	loaded := decode[spec.Site](t, read(t, site))
+	loaded.Spec.StateDir = f.h.state
+	siteDigest, err := spec.Digest(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyDigest, err := spec.Digest(decode[spec.TrustPolicy](t, read(t, f.policyPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Kind != "GitOpsProposal" || proposal.Owner != "flux" || proposal.ApplicationAcceptance != "not_established" || proposal.BundleDigest != verified.Digest || proposal.SiteDigest != siteDigest || proposal.SourceSiteDigest != spec.Hash(read(t, site)) || proposal.PolicyDigest != policyDigest || proposal.Source.Head != head || proposal.Source.Path != "application.yaml" || proposal.Source.ManifestDigest != digest || proposal.Source.BaseDigest != spec.Hash(base) || proposal.Source.Patch == "" {
+		t.Fatal("CLI proposal lost signed bundle/Site/source/review bindings", proposal)
+	}
+	assertUnchanged := func(t *testing.T) {
+		t.Helper()
+		if !bytes.Equal(read(t, filepath.Join(repository, "application.yaml")), base) || !bytes.Equal(read(t, filepath.Join(repository, ".git", "index")), indexBefore) || strings.TrimSpace(string(gitRead("rev-parse", "HEAD"))) != head {
+			t.Fatal("proposal changed repository target/index/HEAD")
+		}
+	}
+	assertUnchanged(t)
+	for _, tc := range []struct{ name, flag, value string }{
+		{"stale-head", "--head", strings.Repeat("a", 40)},
+		{"wrong-path", "--path", "another.yaml"},
+		{"wrong-reviewed-digest", "--approved-manifest-digest", spec.Hash([]byte("unreviewed"))},
+		{"inside-output", "--out", filepath.Join(repository, "proposal.json")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attempt := append([]string(nil), args...)
+			for i := range attempt {
+				if attempt[i] == "--out" {
+					attempt[i+1] = filepath.Join(f.h.dir, tc.name+".json")
+				}
+				if attempt[i] == tc.flag {
+					attempt[i+1] = tc.value
+				}
+			}
+			result := f.h.command(attempt...)
+			if result.err == nil {
+				t.Fatal("unreviewed source/manifest/output admitted")
+			}
+			assertUnchanged(t)
+		})
+	}
+	t.Run("changed-reviewed-manifest", func(t *testing.T) {
+		changed := filepath.Join(f.h.dir, "changed.yaml")
+		body := append(append([]byte(nil), desired...), []byte("# unreviewed change\n")...)
+		write(t, changed, body)
+		attempt := append([]string(nil), args...)
+		for i := range attempt {
+			switch attempt[i] {
+			case "--manifest":
+				attempt[i+1] = changed
+			case "--approved-manifest-digest":
+				attempt[i+1] = spec.Hash(body)
+			case "--out":
+				attempt[i+1] = filepath.Join(f.h.dir, "changed.json")
+			}
+		}
+		if result := f.h.command(attempt...); spec.ExitCode(result.err) != 11 {
+			t.Fatal("manifest no longer matching bundle render admitted", result.err)
+		}
+		assertUnchanged(t)
+	})
+	t.Run("inside-state", func(t *testing.T) {
+		original := f.h.state
+		f.h.state = filepath.Join(repository, "scratch")
+		defer func() { f.h.state = original }()
+		if result := f.h.command(args...); spec.ExitCode(result.err) != 16 {
+			t.Fatal("preparation state inside source admitted", result.err)
+		}
+		if _, err := os.Stat(f.h.state); !os.IsNotExist(err) {
+			t.Fatal("rejected command created state in source", err)
+		}
+		assertUnchanged(t)
+	})
+	t.Run("inside-temporary-directory", func(t *testing.T) {
+		t.Setenv("TMPDIR", repository)
+		if result := f.h.command(args...); spec.ExitCode(result.err) != 16 {
+			t.Fatal("verification temporary files inside source admitted", result.err)
+		}
+		assertUnchanged(t)
+	})
 }

@@ -57,3 +57,48 @@ The phase stages images only. Bundled models, data volumes, controller hooks,
 application workflows, source reversion, and data recovery require their own
 supported delivery and qualification procedures. The controller's ready status
 alone never supplies application acceptance.
+
+## Propose a local source change
+
+You can prepare a private review artifact for an existing customer-controlled
+Git repository. The proposal contains an inert patch and binds the exact bundle,
+Site, trust policy, repository HEAD, original file, and reviewed desired-state
+bytes. It doesn't apply the patch, create a commit, contact a remote, or claim
+that images have already been staged.
+
+For this bounded proposal profile, the signed `deployment.gitops.revision` must
+be the exact expected base commit, and `deployment.gitops.path` must select the
+existing tracked YAML file. The controller's revision labels remain valid for
+the separate export and observation commands. Review the exported desired state
+before passing its digest to the proposal command:
+
+```sh
+cinderlock gitops export release.cinder \
+  --site /private/site.yaml --out /private/reviewed-desired.yaml
+cinderlock --state /private/cinderlock-state gitops propose release.cinder \
+  --site /private/site.yaml --repository /customer/configuration \
+  --head "$REVIEWED_BASE_COMMIT" --path application.yaml \
+  --manifest /private/reviewed-desired.yaml \
+  --approved-manifest-digest "$REVIEWED_MANIFEST_SHA256" \
+  --out /private/gitops-proposal.json
+```
+
+The selected file must match HEAD, index, and working bytes without executable
+mode changes. Unrelated working files can remain dirty. The local Git executable
+must support isolated read commands, SHA-1 or SHA-256 commits, and attribute
+checks against a commit. Executable Git helpers, inherited Git configuration,
+automatic object fetching, and external diff tools are disabled. The adapter
+generates a complete-file text patch directly.
+
+This profile accepts an embedded real `.git` directory and bounded UTF-8 YAML
+files. It rejects symlinked paths, linked worktrees, alternate object stores,
+configuration includes, and target attribute/filter/diff rules. The source and
+desired file limits live in the [Git proposal adapter](../internal/engine/gitops_propose.go).
+Preparation state, temporary files, and proposal output must remain outside the
+repository; output parents must already exist. Proposal files are private and
+cannot overwrite existing review artifacts.
+
+Review and submit the patch through your normal source-control process. If HEAD
+or the selected file changes, create and review a new proposal. Source review
+doesn't authorize application execution or establish controller reconciliation,
+workflow acceptance, hook behavior, or data recovery.
