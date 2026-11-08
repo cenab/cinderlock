@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cenab/cinderlock/internal/bundle"
+	"github.com/cenab/cinderlock/internal/endpointprobe"
 	"github.com/cenab/cinderlock/internal/modelstage"
 	"github.com/cenab/cinderlock/internal/spec"
 	"github.com/cenab/cinderlock/internal/state"
@@ -37,6 +38,7 @@ type jobOptions struct {
 	ManifestConfigMap string
 	IntentStepID      string
 	Fixtures          []fixtureBinding
+	Endpoint          *spec.Check
 }
 
 func (e *Engine) executeJob(ctx context.Context, runID, stepID, image string, command, args, secretRefs []string, pvc, mount string, timeout int64) (string, error) {
@@ -77,8 +79,19 @@ func (e *Engine) executeJobWithOptions(ctx context.Context, runID, stepID, image
 		if ref.Namespace != "" && ref.Namespace != e.Site.Spec.Namespace {
 			return name, spec.Err(16, "cross-namespace Job secret blocked")
 		}
-		envName := strings.ToUpper(strings.ReplaceAll(refID, "-", "_"))
-		if reservedJobEnvironment(envName) {
+		originalName := strings.ToUpper(strings.ReplaceAll(refID, "-", "_"))
+		envName := originalName
+		if options != nil && options.Endpoint != nil {
+			switch refID {
+			case options.Endpoint.CASecretRef:
+				envName = endpointprobe.CAEnvironment
+			case options.Endpoint.AuthorizationSecretRef:
+				envName = endpointprobe.AuthorizationEnvironment
+			default:
+				return name, spec.Err(2, "endpoint worker cannot receive an undeclared secret role")
+			}
+		}
+		if reservedJobEnvironment(originalName) || reservedJobEnvironment(envName) {
 			return name, spec.Err(10, "Job secret name conflicts with fixed execution provenance")
 		}
 		container.Env = append(container.Env, corev1.EnvVar{Name: envName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.Name}, Key: ref.Key}}})
@@ -299,7 +312,18 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	}
 	command := c.Command
 	args := []string{}
-	if c.Type == "http" {
+	options := &jobOptions{Fixtures: fixtures}
+	timeout := c.TimeoutSeconds
+	if c.Type == "endpoint" {
+		command, args, options, err = e.endpointJob(c, v)
+		if err != nil {
+			result.Reason = err.Error()
+			return result
+		}
+		if timeout == 0 {
+			timeout = spec.EndpointDefaultTimeoutSeconds
+		}
+	} else if c.Type == "http" {
 		u, err := url.Parse(c.URL)
 		if err != nil || u.Hostname() == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
 			result.Reason = "HTTP check URL is invalid"
@@ -403,7 +427,7 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	}
 	if err == nil {
 		applicationAttempted = true
-		external, err = e.executeJobWithOptions(ctx, runID, stepID, image, command, args, c.SecretRefs, "", "", c.TimeoutSeconds, &jobOptions{Fixtures: fixtures})
+		external, err = e.executeJobWithOptions(ctx, runID, stepID, image, command, args, c.SecretRefs, "", "", timeout, options)
 	}
 	if err == nil && len(fixtures) > 0 {
 		err = e.validateCheckFixtures(ctx, runID, fixturePlan, c, fixtures, true)

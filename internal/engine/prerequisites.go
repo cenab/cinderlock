@@ -25,18 +25,24 @@ func prerequisiteCheckIDs(p spec.Plan, v *bundle.Verified) []string {
 	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" {
 		return nil
 	}
-	if requirement := v.Index.Lock.Release.Spec.License; requirement != nil {
-		return []string{requirement.Check}
+	ids := []string{}
+	for _, check := range p.Checks {
+		if check.Type == "endpoint" {
+			ids = append(ids, check.ID)
+		}
 	}
-	return nil
+	if requirement := v.Index.Lock.Release.Spec.License; requirement != nil && !slices.Contains(ids, requirement.Check) {
+		ids = append(ids, requirement.Check)
+	}
+	return ids
 }
 
 func recordPrerequisiteFailure(result *spec.RunResult, checks []spec.CheckResult) {
 	result.Domains["workflow"] = "blocked"
 	mergeCheckResults(result, checks)
 	for _, check := range checks {
-		if check.Status == "fail" {
-			result.Domains["workflow"] = "fail"
+		if check.Status != "pass" {
+			result.Domains[check.Domain] = check.Status
 		}
 	}
 }
@@ -49,12 +55,16 @@ func mergeCheckResults(result *spec.RunResult, checks []spec.CheckResult) {
 		} else {
 			result.Checks[index] = check
 		}
+
 	}
 }
 
-func (e *Engine) prerequisiteChecks(ctx context.Context, p spec.Plan, v *bundle.Verified, runID string) ([]spec.CheckResult, error) {
+func (e *Engine) prerequisiteChecks(ctx context.Context, p spec.Plan, v *bundle.Verified, runID string, boundary func() (spec.TargetSnapshot, error)) ([]spec.CheckResult, error) {
 	results := []spec.CheckResult{}
 	for _, id := range prerequisiteCheckIDs(p, v) {
+		if _, err := boundary(); err != nil {
+			return results, err
+		}
 		var check *spec.Check
 		for _, candidate := range p.Checks {
 			if candidate.ID == id && (candidate.Required || slices.Contains(p.RequiredChecks, id)) {

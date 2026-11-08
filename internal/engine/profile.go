@@ -152,6 +152,10 @@ func (e *Engine) ExecutionFindings(ctx context.Context, p spec.Plan, v *bundle.V
 			block("CHECK_TIMEOUT_UNSUPPORTED", "selected check timeout exceeds the supported profile: "+c.ID)
 		}
 		switch c.Type {
+		case "endpoint":
+			if _, _, _, err := e.endpointJob(c, v); err != nil {
+				block("ENDPOINT_PROFILE_UNSUPPORTED", err.Error())
+			}
 		case "job":
 			if len(c.Command) == 0 || c.Command[0] == "" {
 				block("CHECK_COMMAND_MISSING", "selected Job check needs an explicit entrypoint: "+c.ID)
@@ -233,6 +237,11 @@ func (e *Engine) addExecutionFindings(ctx context.Context, p *spec.Plan, v *bund
 	if len(p.Checks) > 0 && (!slices.Contains(e.Site.Spec.AllowedActions, "job") || !slices.Contains(policy.Spec.AllowedActions, "job")) {
 		findings = append(findings, spec.Finding{Code: "CHECK_CAPABILITY_DENIED", Severity: "blocker", Message: "selected acceptance checks require site and policy Job capability"})
 	}
+	for _, capability := range spec.EndpointActions(p.Checks) {
+		if !slices.Contains(e.Site.Spec.AllowedActions, capability) || !slices.Contains(policy.Spec.AllowedActions, capability) {
+			findings = append(findings, spec.Finding{Code: "ENDPOINT_CAPABILITY_DENIED", Severity: "blocker", Message: "endpoint prerequisites require Site and policy capability " + capability})
+		}
+	}
 	p.Findings = append(p.Findings, findings...)
 	for _, finding := range findings {
 		if finding.Severity == "blocker" {
@@ -270,7 +279,7 @@ func (e *Engine) checkExecutionProfile(ctx context.Context, p spec.Plan, v *bund
 	for _, finding := range checked.Findings {
 		if finding.Severity == "blocker" {
 			code := 10
-			if finding.Code == "CAPABILITY_DENIED" || finding.Code == "CHECK_CAPABILITY_DENIED" || finding.Code == "REGISTRY_HTTP_DENIED" {
+			if finding.Code == "CAPABILITY_DENIED" || finding.Code == "CHECK_CAPABILITY_DENIED" || finding.Code == "REGISTRY_HTTP_DENIED" || finding.Code == "ENDPOINT_CAPABILITY_DENIED" {
 				code = 16
 			}
 			return spec.Err(code, "%s: %s", finding.Code, finding.Message)

@@ -153,6 +153,9 @@ type Check struct {
 
 	ObservationContract *ObservationContract `json:"observationContract,omitempty" yaml:"observationContract,omitempty"`
 	Script              *ScriptContract      `json:"script,omitempty" yaml:"script,omitempty"`
+
+	CASecretRef            string `json:"caSecretRef,omitempty" yaml:"caSecretRef,omitempty"`
+	AuthorizationSecretRef string `json:"authorizationSecretRef,omitempty" yaml:"authorizationSecretRef,omitempty"`
 }
 type Recovery struct {
 	ID             string      `json:"id" yaml:"id"`

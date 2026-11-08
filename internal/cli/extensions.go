@@ -43,6 +43,7 @@ func readModelManifest(path string) ([]spec.FileRecord, string, error) {
 func addLifecycleExtensions(root *cobra.Command, o *options) {
 	helper := &cobra.Command{Use: "helper", Short: "Local bounded helpers used by declared verification Jobs"}
 	root.AddCommand(helper)
+	addEndpointProbe(helper, o)
 	var directory, manifestPath, verifySubPath string
 	verifyModel := &cobra.Command{Use: "verify-model", Short: "Verify an immutable model tree against its signed file manifest", RunE: func(c *cobra.Command, args []string) error {
 		files, digest, err := readModelManifest(manifestPath)

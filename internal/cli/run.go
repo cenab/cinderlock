@@ -379,7 +379,7 @@ func addAuthorize(g *cobra.Command, o *options) {
 		if !p.Executable {
 			return spec.Err(16, "cannot authorize a blocked plan")
 		}
-		_, policy, e := o.site(p.SitePath)
+		site, policy, e := o.site(p.SitePath)
 		if e != nil {
 			return e
 		}
@@ -429,6 +429,14 @@ func addAuthorize(g *cobra.Command, o *options) {
 			}
 			if !has(actions, op.Type) {
 				actions = append(actions, op.Type)
+			}
+		}
+		for _, capability := range spec.EndpointActions(p.Checks) {
+			if !has(site.Spec.AllowedActions, capability) || !has(policy.Spec.AllowedActions, capability) {
+				return spec.Err(16, "endpoint prerequisite capability %s is outside site or policy", capability)
+			}
+			if !has(actions, capability) {
+				actions = append(actions, capability)
 			}
 		}
 		a := spec.Authorization{Header: spec.NewHeader("Authorization"), PlanDigest: d, PlanKind: p.Kind, TargetID: p.Snapshot.TargetID, PolicyDigest: pd, PolicyEpoch: policy.Spec.Epoch, Actions: actions, ExpiresAt: time.Now().UTC().Add(validity).Format(time.RFC3339), Nonce: hex.EncodeToString(nonce)}

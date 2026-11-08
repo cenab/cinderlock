@@ -93,3 +93,6 @@ activation, or change license terms.
 This preview requires explicit declarations on existing authored scripts and
 Job checks. Older declarations, locks, and bundles without them must be
 reauthored, relocked, rebuilt, and replanned; never edit signed metadata in place.
+
+[Endpoint prerequisites](endpoint-preflight.md) use a separate fixed adapter to
+observe existing routes from the helper Job network before application mutation.

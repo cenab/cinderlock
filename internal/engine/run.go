@@ -43,6 +43,11 @@ func (e *Engine) authorize(p spec.Plan, policy spec.TrustPolicy, a *spec.Authori
 			return "", spec.Err(16, "authorization does not cover action %s", o.Type)
 		}
 	}
+	for _, capability := range spec.EndpointActions(p.Checks) {
+		if !slices.Contains(a.Actions, capability) {
+			return "", spec.Err(16, "authorization does not cover endpoint prerequisite capability %s", capability)
+		}
+	}
 	body, err := spec.AuthorizationBytes(*a)
 	if err != nil {
 		return "", err
@@ -291,7 +296,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			return fail(spec.Err(16, "operation capability no longer permitted"))
 		}
 		if o.Type != "import" && hasPrerequisites {
-			checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID)
+			checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary)
 			if err != nil {
 				recordPrerequisiteFailure(&result, checks)
 				return fail(err)
@@ -443,7 +448,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			return fail(err)
 		}
 		if hasPrerequisites {
-			if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID); err != nil {
+			if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary); err != nil {
 				recordPrerequisiteFailure(&result, checks)
 				return fail(err)
 			}
@@ -480,7 +485,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		}
 	}
 	result.Domains["workflow"] = "pass"
-	if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID); err != nil {
+	if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary); err != nil {
 		recordPrerequisiteFailure(&result, checks)
 		return fail(err)
 	}

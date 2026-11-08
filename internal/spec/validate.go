@@ -220,6 +220,9 @@ func ValidateCheck(c Check) error {
 	if c.TimeoutSeconds < 0 || c.TimeoutSeconds > 86400 {
 		return Err(2, "invalid check timeout")
 	}
+	if c.Type != "endpoint" && (c.CASecretRef != "" || c.AuthorizationSecretRef != "") {
+		return Err(2, "CA and authorization role references require the fixed endpoint adapter")
+	}
 	if err := validateCheckScript(c); err != nil {
 		return err
 	}
@@ -229,6 +232,10 @@ func ValidateCheck(c Check) error {
 		return Err(2, "invalid check domain %q", c.Domain)
 	}
 	switch c.Type {
+	case "endpoint":
+		if err := validateEndpointCheck(c); err != nil {
+			return err
+		}
 	case "http":
 		if len(c.Command) != 0 || c.Method != "" && c.Method != "GET" && c.Method != "HEAD" {
 			return Err(2, "HTTP check requires the fixed GET or HEAD adapter")
