@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (e *Engine) gitOpsPreparedTemplates(ctx context.Context, binding gitOpsPreparedVolumeBinding, reviewed map[string]appsv1.Deployment, workers []state.Worker, resources []spec.ResourceFact) error {
+func (e *Engine) gitOpsPreparedTemplates(ctx context.Context, p spec.Plan, target string, binding gitOpsPreparedVolumeBinding, reviewed map[string]appsv1.Deployment, workers []state.Worker, resources []spec.ResourceFact) error {
 	templates, err := e.gitOpsClaimTemplates(ctx)
 	if err != nil {
 		return err
@@ -25,6 +25,13 @@ func (e *Engine) gitOpsPreparedTemplates(ctx context.Context, binding gitOpsPrep
 					copy := worker
 					original = &copy
 				}
+			}
+			if original == nil && gitOpsDataPhase(p) {
+				proof, err := e.gitOpsDataConsumerJob(ctx, p, "", target, item.Meta)
+				if err != nil {
+					return err
+				}
+				original = &proof.worker
 			}
 			if original == nil {
 				return spec.Err(10, "prepared model claim is referenced by an unrecorded pending Job")

@@ -557,3 +557,17 @@ another target fact. The plan left this diagnostic classification unspecified.
 Calling the recipe unsupported would suggest changing a valid release;
 declaring a safe stop would hide potentially completed work. The active-run
 and original-worker checks remain in force on a separately authorized resume.
+
+### Share historical consumer proof between mutable data and prepared models
+
+**Verdict:** sound · **Confidence:** high. **When:** model-bearing data recovery.
+
+A failed application run leaves an original completed model-verification Job.
+The next recovery must recognize that reader without deleting evidence or
+admitting every completed Job. Model consumers reuse the existing data-phase
+lookup: the local Plan must match the application, target and mutable claim,
+and the original worker UID and recipe must agree. Historical work must be
+terminal; model mounts remain read-only. The plan left model readers across
+recovery and later upgrades unspecified. This avoids a second history format
+or unbounded ancestry traversal, and preserves the original failure rather
+than confusing permission to retain a reader with application acceptance.

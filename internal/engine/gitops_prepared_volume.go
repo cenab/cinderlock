@@ -101,7 +101,7 @@ func (e *Engine) gitOpsPreparedVolume(ctx context.Context, p spec.Plan, v *bundl
 		}
 		workers = append(workers, current...)
 	}
-	if err := e.gitOpsPreparedConsumers(ctx, out, deployments, workers, p.Snapshot.Resources); err != nil {
+	if err := e.gitOpsPreparedConsumers(ctx, p, out, deployments, workers, p.Snapshot.Resources); err != nil {
 		return out, err
 	}
 	return out, nil
@@ -188,8 +188,16 @@ func (e *Engine) gitOpsClaimDeployments(manifest []byte, contract spec.GitOpsPro
 	return deployments, nil
 }
 
-func (e *Engine) gitOpsPreparedConsumers(ctx context.Context, binding gitOpsPreparedVolumeBinding, reviewed map[string]appsv1.Deployment, workers []state.Worker, resources []spec.ResourceFact) error {
-	if err := e.gitOpsPreparedTemplates(ctx, binding, reviewed, workers, resources); err != nil {
+func (e *Engine) gitOpsPreparedConsumers(ctx context.Context, p spec.Plan, binding gitOpsPreparedVolumeBinding, reviewed map[string]appsv1.Deployment, workers []state.Worker, resources []spec.ResourceFact) error {
+	target := ""
+	if gitOpsDataPhase(p) {
+		var ok bool
+		target, _, ok = e.gitOpsProfileTarget(ctx, e.Site)
+		if !ok {
+			return spec.Err(11, "data target identity is unavailable")
+		}
+	}
+	if err := e.gitOpsPreparedTemplates(ctx, p, target, binding, reviewed, workers, resources); err != nil {
 		return err
 	}
 	pods, err := e.Kube.Client.CoreV1().Pods(e.Site.Spec.Namespace).List(ctx, metav1.ListOptions{Limit: 257})
@@ -211,6 +219,14 @@ func (e *Engine) gitOpsPreparedConsumers(ctx context.Context, binding gitOpsPrep
 					copy := worker
 					original = &copy
 				}
+			}
+			if original == nil && gitOpsDataPhase(p) {
+				meta := metav1.ObjectMeta{Name: owner.Name, Namespace: pod.Namespace, UID: owner.UID, Labels: pod.Labels}
+				proof, err := e.gitOpsDataConsumerJob(ctx, p, "", target, meta)
+				if err != nil {
+					return err
+				}
+				original = &proof.worker
 			}
 			if original == nil {
 				return spec.Err(13, "prepared claim consumer lacks its original recorded worker identity")

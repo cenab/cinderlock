@@ -11,20 +11,24 @@ whole feature set. It does not establish a customer pilot or hardware support.
 Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
 using the normal intent, worker, coordination, approval and recovery owners:
 
-1. Finish q011's live persistent workflow using the frozen `cac2e73` CLI.
+1. Finish q011's live persistent workflow, preserving its frozen phase binaries.
    Installation passed its required workflows. V2 quiesce/backup/migration
    completed with an active `awaiting_adoption` gate; the original Application
    adopted C2 and post-adoption acceptance passed after an explicitly authorized
    same-run resume. All original worker and volume identities were retained.
-   V3 model preparation completed; its pre-adoption data backup is running.
-   Continue through v3's
-   real document deletion and separately authorized restore, preserving the
-   failed result and all original workers. The fixture explicitly opts into
-   maintenance readiness and uses a narrowly authorized Pod replacement.
-2. Finish validation interruption diagnostics, then combined release
+   V3 backup and source adoption completed. Deliberate document deletion failed
+   persistence/query/numeric checks, retained HTTP 404 evidence, and left the
+   accepted floor at 2. Its original result bytes are preserved. Recovery
+   planning with `cac2e73` rejected an original model-verification reader before
+   any recovery work. Finish the shared historical-consumer fix and gates,
+   then select a separately frozen recovery executable and fresh plan/approval.
+   Retain the rejected inputs; refreshed narrow lab credentials require new
+   bindings. The fixture opts into maintenance readiness and Pod replacement.
+2. Finish combined release
    gates, feature documentation and publication. Recorded GitOps kinds,
    check-only policy evaluation, predecessor agreement and waiting notices
-   have regression tests and actual-journal CLI subject/comparison proof;
+   have regression tests and actual-journal CLI/HTTP comparison, policy and
+   local-notice proof;
    catalog review never grants engine authority. Preserve unavailable worker
    reads as unverified evidence rather than claiming a changed recipe.
 

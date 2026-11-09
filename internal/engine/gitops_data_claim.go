@@ -91,6 +91,50 @@ type gitOpsDataJob struct {
 	current bool
 }
 
+func (e *Engine) gitOpsDataConsumerJob(ctx context.Context, p spec.Plan, current, target string, meta metav1.ObjectMeta) (gitOpsDataJob, error) {
+	var proof gitOpsDataJob
+	runID := meta.Labels["cinderlock.dev/run"]
+	record, err := e.Store.Run(ctx, runID)
+	var original spec.Plan
+	if err != nil || record.Application != p.Metadata.Application || record.Namespace != e.Site.Spec.Namespace || record.TargetID != target || spec.Decode(record.Plan, &original) != nil || !gitOpsDataPhase(original) || original.GitOps == nil || original.GitOps.Data == nil || original.GitOps.Data.PVC != p.GitOps.Data.PVC || original.GitOps.Data.UID != p.GitOps.Data.UID {
+		return proof, spec.Err(10, "mutable data claim has an unrecorded or unrelated Job consumer")
+	}
+	digest, dErr := spec.Digest(original)
+	if dErr != nil || digest != record.PlanDigest || original.BundleDigest != record.BundleDigest || original.Snapshot.TargetID != target {
+		return proof, spec.Err(13, "historical data Job has a conflicting local Plan identity")
+	}
+	if record.Active && record.ID != current && record.ID != p.SourceRun {
+		return proof, spec.Err(13, "another active data run still owns a writer")
+	}
+	if err := e.Store.WorkerProtocol(ctx, runID); err != nil {
+		return proof, spec.Err(13, "legacy data worker identity is unqualified")
+	}
+	workers, err := e.Store.Workers(ctx, runID)
+	if err != nil {
+		return proof, err
+	}
+	found := false
+	for _, worker := range workers {
+		if worker.Name == meta.Name && worker.UID == string(meta.UID) {
+			proof.worker = worker
+			found = true
+		}
+	}
+	if !found {
+		return proof, spec.Err(13, "data writer has no original durable worker UID")
+	}
+	proof.job, err = e.workerJob(ctx, proof.worker)
+	if err != nil {
+		return proof, err
+	}
+	proof.current = runID == current
+	status := workerStatus(proof.job)
+	if !proof.current && status != "complete" && status != "failed" {
+		return proof, spec.Err(13, "historical data Job is not confirmed terminal")
+	}
+	return proof, nil
+}
+
 func (e *Engine) gitOpsDataConsumers(ctx context.Context, p spec.Plan, reviewed map[string]appsv1.Deployment, resources []spec.ResourceFact) error {
 	target, _, ok := e.gitOpsProfileTarget(ctx, e.Site)
 	if !ok {
@@ -112,45 +156,9 @@ func (e *Engine) gitOpsDataConsumers(ctx context.Context, p spec.Plan, reviewed 
 			}
 			return proof, nil
 		}
-		var proof gitOpsDataJob
-		runID := meta.Labels["cinderlock.dev/run"]
-		record, err := e.Store.Run(ctx, runID)
-		var original spec.Plan
-		if err != nil || record.Application != p.Metadata.Application || record.Namespace != e.Site.Spec.Namespace || record.TargetID != target || spec.Decode(record.Plan, &original) != nil || !gitOpsDataPhase(original) || original.GitOps == nil || original.GitOps.Data == nil || original.GitOps.Data.PVC != p.GitOps.Data.PVC || original.GitOps.Data.UID != p.GitOps.Data.UID {
-			return proof, spec.Err(10, "mutable data claim has an unrecorded or unrelated Job consumer")
-		}
-		digest, dErr := spec.Digest(original)
-		if dErr != nil || digest != record.PlanDigest || original.BundleDigest != record.BundleDigest || original.Snapshot.TargetID != target {
-			return proof, spec.Err(13, "historical data Job has a conflicting local Plan identity")
-		}
-		if record.Active && record.ID != current.ID && record.ID != p.SourceRun {
-			return proof, spec.Err(13, "another active data run still owns a writer")
-		}
-		if err := e.Store.WorkerProtocol(ctx, runID); err != nil {
-			return proof, spec.Err(13, "legacy data worker identity is unqualified")
-		}
-		workers, err := e.Store.Workers(ctx, runID)
+		proof, err := e.gitOpsDataConsumerJob(ctx, p, current.ID, target, meta)
 		if err != nil {
 			return proof, err
-		}
-		found := false
-		for _, worker := range workers {
-			if worker.Name == meta.Name && worker.UID == string(meta.UID) {
-				proof.worker = worker
-				found = true
-			}
-		}
-		if !found {
-			return proof, spec.Err(13, "data writer has no original durable worker UID")
-		}
-		proof.job, err = e.workerJob(ctx, proof.worker)
-		if err != nil {
-			return proof, err
-		}
-		proof.current = runID == current.ID
-		status := workerStatus(proof.job)
-		if !proof.current && status != "complete" && status != "failed" {
-			return proof, spec.Err(13, "historical data Job is not confirmed terminal")
 		}
 		jobs[meta.Name] = proof
 		return proof, nil

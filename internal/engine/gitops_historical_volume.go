@@ -57,7 +57,7 @@ func (e *Engine) gitOpsHistoricalVolume(ctx context.Context, p spec.Plan, claim 
 		}
 		workers = append(workers, selected...)
 	}
-	if err := e.gitOpsPreparedConsumers(ctx, binding, deployments, workers, previous.Snapshot.Resources); err != nil {
+	if err := e.gitOpsPreparedConsumers(ctx, p, binding, deployments, workers, previous.Snapshot.Resources); err != nil {
 		return binding, err
 	}
 	return binding, nil

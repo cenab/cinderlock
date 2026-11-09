@@ -145,6 +145,12 @@ be the next operational baseline; it leaves the original failed attempt and
 its unaccepted result unchanged. A failed recovery retains the gate for
 another explicitly authorized supported recovery or reconciliation.
 
+Retained model readers from data phases remain eligible consumers when their
+local plan, target, data-claim identity, original Job UID, and recipe agree.
+They must be terminal and retain read-only model mounts. This recognizes
+historical verification work during recovery or a later upgrade; it does not
+admit an unknown completed Job or turn a failed workflow into acceptance.
+
 Failure before source adoption, customer source reversion, and cross-source
 restoration require separate reconciliation/profiles. Do not delete a journal
 or recreate a worker to force the supported same-source path.
