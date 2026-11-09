@@ -41,6 +41,11 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 			return spec.RunResult{}, err
 		}
 	}
+	if p.SourceRun != "" {
+		if err := e.verifyHandoffAdmission(ctx, p); err != nil {
+			return spec.RunResult{}, err
+		}
+	}
 	runID := randomID()
 	digest, err := spec.Digest(p)
 	if err != nil {
@@ -64,6 +69,11 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 		return spec.RunResult{}, err
 	}
 	record := state.Run{ID: runID, Application: p.Metadata.Application, Namespace: e.Site.Spec.Namespace, TargetID: p.Snapshot.TargetID, PlanDigest: digest, BundleDigest: p.BundleDigest, State: "acquiring", Plan: planJSON, Site: siteJSON}
+	if p.SourceRun != "" {
+		if err := e.verifyHandoffAdmission(ctx, p); err != nil {
+			return spec.RunResult{}, err
+		}
+	}
 	if err := e.Store.AdmitRun(ctx, record, p.SourceRun, &state.Authorization{Nonce: nonce, PolicyDigest: p.PolicyDigest, ExpiresAt: authorizationExpiry(a)}); err != nil {
 		if errors.Is(err, state.ErrAuthorizationUsed) {
 			return spec.RunResult{}, spec.Err(16, "execution authorization nonce already belongs to another run")
@@ -74,19 +84,17 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 		return spec.RunResult{}, err
 	}
 	result := newResult(p, runID, digest)
-	if err := e.clusterRecord(ctx, runID, digest, "acquiring", nil); err != nil {
+	record.Active = true
+	if p.SourceRun != "" {
+		err = e.completeHandoff(ctx, record, p)
+	} else {
+		err = e.clusterRecord(ctx, runID, digest, "acquiring", nil)
+	}
+	if err != nil {
 		_ = e.Store.SetState(context.Background(), runID, "blocked", true, result)
 		return result, err
 	}
-	if p.SourceRun != "" {
-		source, err := e.Store.Run(ctx, p.SourceRun)
-		if err != nil {
-			return result, err
-		}
-		if err := e.clusterRecord(ctx, p.SourceRun, source.PlanDigest, "superseded", map[string]string{"recoveryRun": runID}); err != nil {
-			return result, err
-		}
-	}
+
 	return e.execute(ctx, p, v, policy, a, approved, coord, result, true)
 }
 

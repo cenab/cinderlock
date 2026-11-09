@@ -35,7 +35,7 @@ func (e *Engine) acquire(ctx context.Context, runID string, recoverySource ...st
 			continue
 		}
 		status := record.Data["state"]
-		if status != "succeeded" && status != "recovered" && status != "superseded" && status != "probe_complete" && status != "probe_failed" && status != "retired" && status != "artifacts_staged" && status != "artifacts_failed" && status != "gitops_prepared" && status != "gitops_prepare_failed" {
+		if !clusterRunResolved(status) {
 			return nil, spec.Err(18, "cluster records an unresolved prior run %s", record.Data["runID"])
 		}
 	}
@@ -171,23 +171,40 @@ func (e *Engine) clusterRecord(ctx context.Context, runID, planDigest, status st
 	if err != nil {
 		return err
 	}
-	if cm.Data["planDigest"] != planDigest {
-		return spec.Err(13, "cluster run journal plan binding conflicts")
+	if !e.clusterRecordMatches(cm, runID, planDigest) {
+		return spec.Err(13, "cluster run journal binding conflicts")
 	}
 	cm.Data = data
 	_, err = cms.Update(ctx, cm, metav1.UpdateOptions{})
 	return err
 }
 
-func (e *Engine) verifyClusterRecord(ctx context.Context, runID, planDigest string) error {
+func clusterRunResolved(status string) bool {
+	switch status {
+	case "succeeded", "recovered", "superseded", "probe_complete", "probe_failed", "retired", "artifacts_staged", "artifacts_failed", "gitops_prepared", "gitops_prepare_failed":
+		return true
+	}
+	return false
+}
+
+func (e *Engine) readClusterRecord(ctx context.Context, runID, planDigest string) (*corev1.ConfigMap, error) {
 	cm, err := e.Kube.Client.CoreV1().ConfigMaps(e.Site.Spec.Namespace).Get(ctx, "cinderlock-run-"+runID, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("cluster journal unavailable; refusing new mutations: %w", err)
+		return nil, fmt.Errorf("cluster journal unavailable; refusing new mutations: %w", err)
 	}
-	if cm.Data["runID"] != runID || cm.Data["planDigest"] != planDigest {
-		return spec.Err(13, "cluster journal binding mismatch")
+	if !e.clusterRecordMatches(cm, runID, planDigest) {
+		return nil, spec.Err(13, "cluster journal binding mismatch")
 	}
-	return nil
+	return cm, nil
+}
+
+func (e *Engine) clusterRecordMatches(cm *corev1.ConfigMap, runID, planDigest string) bool {
+	return cm.DeletionTimestamp == nil && cm.Data["runID"] == runID && cm.Data["planDigest"] == planDigest && cm.Data["releaseName"] == e.Site.Spec.ReleaseName && cm.Labels["app.kubernetes.io/managed-by"] == "cinderlock" && cm.Labels["cinderlock.dev/run"] == runID
+}
+
+func (e *Engine) verifyClusterRecord(ctx context.Context, runID, planDigest string) error {
+	_, err := e.readClusterRecord(ctx, runID, planDigest)
+	return err
 }
 
 func deletionPreconditions(uid types.UID, version string) *metav1.Preconditions {

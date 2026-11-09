@@ -231,6 +231,39 @@ func (s *Store) AdmitRun(ctx context.Context, r Run, sourceID string, approval *
 	return tx.Commit()
 }
 
+// Successor reads the single gate transfer committed by AdmitRun.
+func (s *Store) Successor(ctx context.Context, sourceID string) (string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT data_json FROM events WHERE run_id=? AND type='run_superseded' ORDER BY seq DESC LIMIT 2`, sourceID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	successor := ""
+	for rows.Next() {
+		var body []byte
+		var edge struct {
+			RunID string `json:"recoveryRun"`
+		}
+		if err := rows.Scan(&body); err != nil {
+			return "", err
+		}
+		if err := json.Unmarshal(body, &edge); err != nil {
+			return "", err
+		}
+		if successor != "" || edge.RunID == "" {
+			return "", errors.New("ambiguous recorded run successor")
+		}
+		successor = edge.RunID
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if successor == "" {
+		return "", errors.New("recorded run successor is unavailable")
+	}
+	return successor, nil
+}
+
 // Supersede transfers the unresolved local gate only when a reviewed recovery run is created atomically.
 func (s *Store) Supersede(ctx context.Context, sourceID string, r Run) error {
 	return s.AdmitRun(ctx, r, sourceID, nil)

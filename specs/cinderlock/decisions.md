@@ -419,3 +419,20 @@ and controller inventories reject unknown writers, including queued Jobs with
 no Pod. Full model reads occur at check start and finish, with identity, manifest
 and consumer checks between them. This bounds repeated work without promising
 exclusive future writers, continuous byte integrity or mutable-data safety.
+
+### Resume only an already committed recovery handoff
+
+**Verdict:** sound · **Confidence:** medium. **When:** recovery journal handoff.
+
+If local storage has transferred the active safety gate to a recovery but a
+cluster journal write loses its response, the operator resumes that same run.
+The existing local transaction records exactly which predecessor gave the gate
+to which successor. Resume validates that edge and both saved plans, holds the
+application Lease, and completes only the missing journal writes before any
+worker. It never ignores an arbitrary unresolved run. A missing successor
+journal is repairable only while no successor intent or worker exists; the
+original predecessor journal must still be available. The plan did not specify
+how to recover this split between local storage and Kubernetes. Reusing the
+existing transaction and journal format avoids another workflow database or
+new admission protocol. This does not reconstruct lost predecessor history or
+fence application writes outside Cinderlock.

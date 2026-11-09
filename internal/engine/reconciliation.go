@@ -34,10 +34,14 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 	if err != nil {
 		return spec.RunResult{}, err
 	}
-	if err := e.verifyClusterRecord(ctx, runID, record.PlanDigest); err != nil {
+	if p.SourceRun != "" {
+		if _, _, err := e.handoffSource(ctx, record, p); err != nil {
+			return spec.RunResult{}, err
+		}
+	} else if err := e.verifyClusterRecord(ctx, runID, record.PlanDigest); err != nil {
 		return spec.RunResult{}, err
 	}
-	coord, err := e.acquire(ctx, runID)
+	coord, err := e.acquire(ctx, runID, p.SourceRun)
 	if err != nil {
 		return spec.RunResult{}, err
 	}
@@ -48,6 +52,11 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 	}()
 	if err := e.Store.ConsumeAuthorization(ctx, nonce, record.PlanDigest, runID, p.PolicyDigest, authorizationExpiry(a)); err != nil {
 		return spec.RunResult{}, err
+	}
+	if p.SourceRun != "" {
+		if err := e.completeHandoff(ctx, record, p); err != nil {
+			return spec.RunResult{}, err
+		}
 	}
 	beforeVerification := func() error {
 		_, err := e.executionBoundary(ctx, runID, p, v, policy, a, approved, coord)

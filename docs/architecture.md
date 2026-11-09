@@ -194,6 +194,15 @@ recovery must establish that relevant workers are terminal. Legacy journals
 retain their history but cannot acquire missing worker identity through a
 schema migration or automatically resume the new execution protocol.
 
+A recovery handoff checks the original cluster journal before consuming the new
+approval or transferring the local gate. Its local transaction records the exact
+successor. Both cluster journals must reflect that edge before any successor
+worker starts. If a journal write fails or its response is lost, resume can
+finish that recorded edge under the application Lease. A missing successor
+journal can be recreated only before any successor intent or worker exists.
+Missing predecessor evidence, conflicting identities or another unresolved run
+keep execution blocked; they never authorize journal reconstruction.
+
 Recovery has its own plan and authorization against actual state. It preserves
 the failed attempt and requires declared application acceptance. A prior-chart
 Helm downgrade is rejected by the current adapter rather than deploying the
