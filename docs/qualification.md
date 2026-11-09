@@ -222,9 +222,13 @@ reported two advisories in imported packages whose affected paths weren't
 called. This is a dated analysis of Cinderlock, not a vulnerability scan or
 security certification of supplied application images or models.
 
-Standalone report and catalog pages received desktop/mobile browser smoke
-checks, keyboard checks, and visual inspection. No external assets were
-requested in those checks. This isn't a complete accessibility certification.
+Earlier standalone report and catalog pages received desktop/mobile browser
+smoke checks, keyboard checks, and visual inspection. No external assets were
+requested in those checks. Source-run report rendering was subsequently checked
+through actual CLI HTML/Markdown byte comparisons and generated HTML inspection.
+Fresh visual and keyboard checks for that field were unavailable because browser
+security policy rejected local file URLs. These checks do not establish complete
+accessibility certification.
 
 ## Hosted core baseline
 

@@ -112,3 +112,35 @@ func TestReportAssessesMatchingMetricsWithInclusiveBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestReportsRetainSourceRunWithoutInventingOrActivatingContent(t *testing.T) {
+	for _, test := range []struct{ source, literal string }{
+		{"", ""},
+		{"original-failed-run", "original-failed-run"},
+		{"<script>original</script>", "&lt;script&gt;original&lt;/script&gt;"},
+	} {
+		run := spec.RunResult{Header: spec.NewHeader("RunResult"), RunID: "recovery-run", SourceRun: test.source, State: "recovered", Acceptance: "pass"}
+		for name, render := range map[string]func(*bytes.Buffer, spec.RunResult) error{
+			"html":     func(b *bytes.Buffer, r spec.RunResult) error { return Render(b, r) },
+			"markdown": func(b *bytes.Buffer, r spec.RunResult) error { return Markdown(b, r) },
+		} {
+			t.Run(name+"/"+test.source, func(t *testing.T) {
+				var out bytes.Buffer
+				if err := render(&out, run); err != nil {
+					t.Fatal(err)
+				}
+				text := out.String()
+				if test.source == "" {
+					if strings.Contains(text, "Source run") {
+						t.Fatal("report invented a source run")
+					}
+				} else if !strings.Contains(text, "Source run") || !strings.Contains(text, test.literal) {
+					t.Error("report omitted its original source-run context")
+				}
+				if strings.Contains(text, "<script>original</script>") {
+					t.Error("source-run text became active HTML")
+				}
+			})
+		}
+	}
+}

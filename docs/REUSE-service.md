@@ -137,7 +137,8 @@ lazy JWKS refresh remains usable after the startup discovery context ends.
 
 `report.Render` emits standalone local HTML without external assets or scripts.
 It preserves the four result domains, required checks, observations, next safe
-step, and coverage gaps. It does not average away a failed required workflow.
+step, and coverage gaps. Separate recovery and successor reports retain their
+source-run context; every result keeps its own acceptance. It does not average away a failed required workflow.
 `report.Markdown` produces a local CI summary without sending it to a service.
 
 `support.Collect` freezes a typed summary. `support.Export` rehashes it and
