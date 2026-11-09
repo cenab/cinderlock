@@ -18,7 +18,10 @@ does not supply application or data recovery.
 Use a signed GitOps release with an Argo owner, a full expected base commit A,
 and the exact tracked YAML path. The bounded `argocd-directory-v1` source,
 resource, ownership and health contract remains required for application
-checks. Flux and alternate generators need another qualified profile.
+checks. Flux and alternate generators need another qualified profile. The release,
+Site and numeric observation contracts must name the same application profile.
+The observer contract's `argocd-directory-v1` names the controller adapter and
+is independent of that application profile.
 
 The release may contain image imports, a GitOps source marker and empty-command
 native seeds. Seeds referenced by `Check.fixtures` are dedicated acceptance
@@ -40,20 +43,22 @@ general discovery of custom controllers.
 ## Prepare fresh model revisions at A
 
 First complete the separately authorized image-only staging plan. Keep the
-local checkout at the clean signed base A while preparing models. Store the
+local checkout at the clean signed base A while preparing models. Create the
+private state/cache parent directories outside that checkout first, and select
+them explicitly on every phase command. Store the
 reviewed manifest, bundle cache, state, temporary files, Site, policy, outputs
 and executable renderer outside the source repository.
 
 ```sh
-cinderlock --state /private/state gitops prepare-plan release.cinder \
+cinderlock --state /private/state --cache /private/cache gitops prepare-plan release.cinder \
   --site /private/site.yaml --repository /customer/source \
   --manifest /private/reviewed-desired.yaml \
   --approved-manifest-digest "$REVIEWED_MANIFEST_SHA256" \
   --staging-run "$STAGING_RUN_ID" --out /private/prepare-plan.json
-cinderlock --state /private/state run authorize /private/prepare-plan.json \
+cinderlock --state /private/state --cache /private/cache run authorize /private/prepare-plan.json \
   --key /private/customer-approval.key --key-id customer-approval \
   --out /private/prepare-authorization.json
-cinderlock --state /private/state run apply /private/prepare-plan.json \
+cinderlock --state /private/state --cache /private/cache run apply /private/prepare-plan.json \
   --authorization /private/prepare-authorization.json
 ```
 
@@ -93,15 +98,15 @@ original reconcile/operation time bounds in a private observation contract.
 No saved `ready` boolean authorizes execution.
 
 ```sh
-cinderlock --state /private/state gitops checks-plan release.cinder \
+cinderlock --state /private/state --cache /private/cache gitops checks-plan release.cinder \
   --site /private/site.yaml --manifest /private/reviewed-desired.yaml \
   --contract /private/controller-contract.json \
   --staging-run "$STAGING_RUN_ID" \
   --preparation-run "$PREPARATION_RUN_ID" --out /private/checks-plan.json
-cinderlock --state /private/state run authorize /private/checks-plan.json \
+cinderlock --state /private/state --cache /private/cache run authorize /private/checks-plan.json \
   --key /private/customer-approval.key --key-id customer-approval \
   --out /private/checks-authorization.json
-cinderlock --state /private/state run apply /private/checks-plan.json \
+cinderlock --state /private/state --cache /private/cache run apply /private/checks-plan.json \
   --authorization /private/checks-authorization.json
 ```
 
@@ -171,4 +176,5 @@ exercise a real loopback registry, temporary Git A-to-C adoption, native file
 transfer/verifiers, durable SQLite journal and fake Kubernetes/Argo clients.
 They establish the tested safety contracts, not live controller reconciliation,
 Pod attachment, model storage performance or full application/data recovery.
-Live qualification requires explicit disposable inputs and separate receipts.
+The [qualification record](qualification.md) separately records the live CPU
+model/stateless workflow and its retained failures and limits.

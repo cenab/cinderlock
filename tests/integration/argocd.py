@@ -239,6 +239,7 @@ def source_transport(namespace, image, compressed):
             containers=[dict(container, name="http", command=["python", "-m", "http.server"],
                 args=["8000", "--bind", "0.0.0.0", "--directory", "/srv"],
                 ports=[dict(name="http", containerPort=8000, protocol="TCP")],
+                readinessProbe=dict(httpGet=dict(path="/source.git/HEAD", port="http"), periodSeconds=1),
                 volumeMounts=[dict(name="source", mountPath="/srv", readOnly=True)])],
             volumes=[dict(name="archive", configMap=dict(name="source-server", defaultMode=0o444)),
                      dict(name="source", emptyDir=dict(sizeLimit="8Mi"))])),

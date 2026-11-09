@@ -219,8 +219,9 @@ not that a controller installed a healthy application. Image staging uses its ow
 exact authorized plan and cannot advance the accepted application release floor.
 A source proposal is an inert whole-file patch for one clean tracked YAML file;
 it never commits, pushes or fetches. The design left repository integration open.
-Customers retain their source review process. Model/data preparation and actual
-controller/workflow evidence still need their own execution paths.
+Customers retain their source review process. Native model preparation and
+application checks use separate authorized execution paths. Mutable data
+procedures and recovery require their own contracts.
 
 
 ### Optional numeric failures can finish a resumed run without being retried
@@ -401,3 +402,20 @@ separate verifier reads and hashes the full graph when the execution phase
 requires a fresh byte audit. Neither reader writes tags or content. Metadata
 availability alone cannot detect changed bytes behind an unchanged descriptor,
 prove a future pull, or replace the original completed-copy evidence.
+
+### Separate model preparation from same-run acceptance material
+
+**Verdict:** sound · **Confidence:** medium. **When:** authorized GitOps model and
+application-check phases.
+
+A vendor can prepare a fresh model volume while the customer's checkout still
+contains the old source. That run records its original receiver, verifier and
+volume identities but cannot accept an application release. After the customer
+adopts the reviewed source, a separately authorized check run references that
+exact preparation. It seeds its own test fixtures, so an old model-copy receipt
+cannot masquerade as this run's test data. The plan did not specify this
+cross-run boundary. Application model mounts must be read-only; current worker
+and controller inventories reject unknown writers, including queued Jobs with
+no Pod. Full model reads occur at check start and finish, with identity, manifest
+and consumer checks between them. This bounds repeated work without promising
+exclusive future writers, continuous byte integrity or mutable-data safety.

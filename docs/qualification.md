@@ -7,7 +7,7 @@ The [feature audit](features.md) separately identifies incomplete mechanisms.
 
 ## Recorded environment
 
-Local CPU checks completed on November 7–8, 2026 UTC.
+Local CPU checks completed on November 7–9, 2026 UTC.
 The operator CLI ran on macOS ARM64 with Go 1.27.3. Workloads ran on a disposable
 single-node kind v0.33.0 cluster, Kubernetes v1.37.0, and Linux ARM64. The registry
 was an explicitly admitted loopback HTTP test registry.
@@ -57,6 +57,39 @@ excludes serving-process, native, RSS, and GPU memory. The registry probe proves
 one worker-context HTTP response, without establishing fresh-node image pulls
 or isolation. Private inputs and receipts remain under `.local/qualification-005/`.
 
+## Authorized GitOps model and application workflow
+
+On November 9, 2026 UTC, frozen source `c4449005a2b3bd6515ee8ab308c1dd22ab82fb33`
+completed image staging, native model preparation, independent synthetic lab
+source adoption, and separately authorized application checks through real Argo
+CD v3.6.1. The same disposable Linux ARM64 environment and locked synthetic
+application/helper images were used. The frozen operator executable's SHA-256
+is `a127a6c037f8b06a2a1542f3ffbeb930a23d09a449eb016e2d1328dc00311d23`.
+
+Preparation finished as inactive `gitops_prepared`, without application
+acceptance. After the explicit lab source operation, Argo reconciled the exact
+accepted commit with server-side apply. The check run seeded its own dedicated
+fixtures, verified the model at start and finish, and passed all five required
+checks: internal registry response, health, ingestion, query and numeric
+observations. Final acceptance was `pass`; all phase runs were inactive, and the
+release floor advanced only after checks. A final read matched all fourteen
+recorded worker UIDs and recipes to their original completed Jobs.
+
+The earlier q008 bundle/profile mismatch was rejected before a check run began.
+In q009, an initial Argo source fetch returned connection refused. A subsequent
+Service HTTP read and explicit manual sync succeeded with the original source,
+server and Application identities; the failed operation remains in the
+receipts. The input fixture now waits for its source HTTP endpoint's readiness.
+Neither rejection was converted into a successful attempt.
+
+This application uses EmptyDir for its synthetic database. The result qualifies
+model preparation and the declared stateless workflows, including only
+in-session fixture rereads. It establishes no durable persistence, data
+migration, restore, GPU inference, physical isolation, fresh-node image pull,
+or production recovery. Storage capacities remain explicitly synthetic
+assertions. Full inputs, original worker and volume bindings, results and an
+evidence hash index remain private under `.local/argocd-workflow/q009/`.
+
 ## Bounded Argo controller observation
 
 On November 8, 2026 UTC, source `f8bf623` produced `ready: true` against a real
@@ -69,8 +102,9 @@ original proposal base; the customer's accepted commit was bound separately.
 An earlier manual lab sync used client-side apply and was correctly rejected.
 The lab operator then explicitly requested server-side apply; Cinderlock did
 not create the Application or request that sync. The resulting observation
-records `applicationAcceptance: not_established`. GitOps model/data preparation,
-authorized application workflows, and recovery are separate unfinished paths.
+records `applicationAcceptance: not_established`. Model preparation and
+application workflows have the separate qualification below; mutable GitOps
+data procedures and recovery remain unfinished.
 This observation does not qualify other Argo versions, Flux, or production use.
 Use the [Argo input guide](argocd-qualification.md) for the preparation boundary.
 
@@ -143,9 +177,22 @@ summary was retained, so recovery is unproven for this hosted source.
 
 The expanded profile now has a 45-minute overall Kubernetes job allowance.
 Individual CLI/worker deadlines and all functional assertions are unchanged.
-A new completed run is required to qualify its recovery path. Private terminal
-metadata, logs and verified receipts remain under
+Private terminal metadata, logs and verified receipts remain under
 `.local/hosted-ci-42468205931/`.
+
+[GitHub run 42471082512](https://github.com/cenab/cinderlock/actions/runs/42471082512)
+then passed both jobs for `3dcbb3f`. Its retained Linux AMD64 CPU results contain
+successful installation and upgrade, the intended optional numeric-budget
+failure, the required document-loss failures, and a separately successful
+recovery. The recovery names the failed run, whose acceptance remains
+unestablished. All four endpoint results, numeric reports, the final summary and
+recovery HTML were retained. The downloaded artifact's SHA-256 matches GitHub's
+declared digest. These receipts are private under
+`.local/hosted-ci-42471082512/`.
+
+The later `c444900` preparation/check implementation has the separately scoped
+local qualification above. The completed hosted run does not qualify those
+later changes automatically.
 
 ## Reproduce and extend the evidence
 

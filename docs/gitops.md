@@ -53,10 +53,11 @@ stop ends as `artifacts_failed`; uncertain transfers retain the active gate.
 Changed Site, policy, target, or credential bindings require investigation and a
 fresh authorized plan where applicable.
 
-The phase stages images only. GitOps model/data preparation isn't implemented;
-it doesn't prepare model PVCs. Application workflows, controller hooks, resource
-rollback, and data recovery require their own supported mechanisms and
-qualification. The controller's ready status alone never supplies application
+This phase stages images only. Separate [authorized preparation and application
+checks](gitops-execution.md) can prepare fresh native model PVCs, bind their
+original evidence to the accepted source, and run required workflows. Mutable
+data procedures, controller hooks, source rollback and data recovery remain
+separate scope. The controller's ready status alone never supplies application
 acceptance.
 
 ## Propose a local source change
@@ -200,5 +201,6 @@ Git repositories verify file and history handling. The
 [qualification record](qualification.md) separately records the completed
 bounded Argo v3.6.1 live observation. Use the
 [Argo directory input guide](argocd-qualification.md) to prepare a fresh lab.
-Model/data preparation, independently authorized application workflows, and
-broader controller/version qualification remain open.
+The [preparation/check profile](gitops-execution.md) has separate execution
+contracts and tests. Mutable data procedures and broader controller/version
+qualification remain open.

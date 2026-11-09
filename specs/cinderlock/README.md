@@ -11,17 +11,13 @@ whole feature set. It does not establish a customer pilot or hardware support.
 Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
 using the normal intent, worker, coordination, approval and recovery owners:
 
-1. Complete native fresh-volume preparation and separately authorized
-   accepted-source checks. Before landing, pin/fix effective read-only mount
-   semantics, queued writers without Pods, and source freshness after dependency
-   reads. Preserve same-run fixture proof and original cross-run model evidence.
-2. Implement mutable data procedures before and after independent source
-   adoption, plus separately authorized restoration. Describe the durable gate
-   and exact predecessor transfer before coding this slice. Model preparation
-   and healthy controller status cannot substitute for these mechanisms.
-3. Exercise the resulting public CLI in the owned lab, finish the combined
-   release gates and feature documentation, then publish. Keep failed upgrade
-   acceptance separate from successful recovery and retain original identities.
+1. Implement mutable data procedures around independent source adoption and
+   separately authorized restoration. Reuse the exact active-gate transfer;
+   model preparation and healthy controller status cannot substitute for data
+   quiescence, backup, migration, resume-writes or recovery.
+2. Qualify the persistent q007 workflow through the resulting public CLI, then
+   finish the combined release gates, feature documentation and publication.
+   Keep failed upgrade acceptance separate from successful recovery.
 
 | Source | Completed evidence and boundary | Private records |
 | --- | --- | --- |
@@ -30,18 +26,19 @@ using the normal intent, worker, coordination, approval and recovery owners:
 | `f8bf623` | Real Argo v3.6.1 source/resource/SSA observation, five denial controls and restored original UIDs passed. Application acceptance remains unestablished. | `.local/argocd-profile/` |
 | `34937f5` | Fresh unit/race/vet, actual PostgreSQL, source scan, static Linux builds, full source/toolchain/Helm/legal export and offline compilation passed. Binaries were not run by build checks. | `.local/distribution-34937f5/` |
 | Published `edee42d` | Hosted run 42468205931 passed its Go job, install, upgrade and expected data-loss failure. The overall 30-minute Kubernetes budget cancelled before recovery proof; the next run uses 45 minutes with unchanged CLI/worker deadlines and assertions. | `.local/hosted-ci-42468205931/` |
+| Published `3dcbb3f` | Replacement hosted run 42471082512 passed build/security/distribution and all four CPU outcomes, including separate recovery and retained original failure. | `.local/hosted-ci-42471082512/` |
+| `c444900` | Authorized native preparation/check contracts pass unit/race/CLI and the live CPU model/stateless workflow, including five required checks and original worker identity readback. | `.local/argocd-workflow/q009/`, `.local/gitops-qualified-c444900/` |
 
 The [qualification record](../../docs/qualification.md) owns detailed limits.
 Prerequisite duplication was removed while retaining actual-start, post-wait
 and final guards; no matched live speedup is claimed. Source size audit lists
 zero files over 8,000 tokens, without a hook or added dependency.
 
-The private q007 persistent input draft retains every original procedure and
-has no live effects. It awaits the actual data contracts. An optional model
-mount in the existing stateless Argo chart can qualify the earlier preparation
-slice separately. Recheck the frozen `8db0077` helper protocol against the final
-execution CLI before reuse; original q006 and native005 artifacts stay unchanged.
-The user will supply NVIDIA hardware later; keep that qualification open.
+The private q007 persistent draft retains its original procedures and awaits
+actual data contracts. The separate q009 model/stateless workflow passed with a
+frozen `c444900` CLI and the protocol-compatible `8db0077` helper; original q006,
+q008 and native005 evidence stays unchanged. The user will supply NVIDIA
+hardware later; keep that qualification open.
 
 Use explicit kubeconfig/context paths on every Kubernetes/Helm invocation.
 Never use the workstation's default production context. Temporary credentials,
