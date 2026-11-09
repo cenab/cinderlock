@@ -543,3 +543,17 @@ catalog disconnected; treating a phase as ordinary deployment would hide its
 coverage and predecessor context. Recorded run and plan predecessor fields
 must agree. A waiting-state local notice preserves unestablished acceptance
 and never releases the active engine gate or sends a message.
+
+### Preserve unavailable observations as unverified evidence
+
+**Verdict:** sound · **Confidence:** high. **When:** validation diagnostics.
+
+An upgrade's original worker still exists, but the local client's remaining
+time is too short to read it. Cinderlock retains the read failure and reports
+unverified evidence with exit code 13, meaning continuation requires
+reconciliation. It does not claim that the worker's recipe changed. A canceled
+validation uses the same distinction, including before the client can collect
+another target fact. The plan left this diagnostic classification unspecified.
+Calling the recipe unsupported would suggest changing a valid release;
+declaring a safe stop would hide potentially completed work. The active-run
+and original-worker checks remain in force on a separately authorized resume.

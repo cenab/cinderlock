@@ -113,6 +113,12 @@ model verification, and required application workflows. Only final successful
 acceptance advances the release floor. Keep original Jobs, receiver Pods,
 manifests, and PVCs available through subsequent handoffs.
 
+An interrupted validation or unavailable original-worker read cannot establish
+a changed deployment recipe. It blocks continuation as unverified evidence
+with exit code `13`; fixture findings use `CHECK_FIXTURE_UNVERIFIED`. Inspect
+the recorded workers and reconcile the same run before retrying. This does
+not turn an interrupted attempt into a safe stop or establish acceptance.
+
 For a first installation, use `data-checks-plan --initial-data` instead of a
 predecessor. It requires explicit staging, applicable model preparation, and
 the independently selected `--data-uid`. It cannot bypass an accepted release

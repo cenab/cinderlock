@@ -311,7 +311,11 @@ func (e *Engine) gitOpsUnreferencedClaim(ctx context.Context, runID, claim strin
 		known := false
 		for _, worker := range workers {
 			if worker.Name == item.Meta.Name && worker.UID == string(item.Meta.UID) {
-				if job, err := e.workerJob(ctx, worker); err != nil || job.DeletionTimestamp != nil {
+				job, err := e.workerJob(ctx, worker)
+				if err != nil {
+					return err
+				}
+				if job.DeletionTimestamp != nil {
 					return spec.Err(13, "native claim consumer differs from its original recorded Job")
 				}
 				known = true

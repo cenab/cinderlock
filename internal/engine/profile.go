@@ -292,6 +292,9 @@ func (e *Engine) checkExecutionProfile(ctx context.Context, p spec.Plan, v *bund
 	for _, finding := range checked.Findings {
 		if finding.Severity == "blocker" {
 			code := 10
+			if finding.Code == "CHECK_FIXTURE_UNVERIFIED" {
+				code = 13
+			}
 			if finding.Code == "CAPABILITY_DENIED" || finding.Code == "REGISTRY_HTTP_DENIED" {
 				code = 16
 			}

@@ -269,7 +269,13 @@ func (e *Engine) Plan(ctx context.Context, v *bundle.Verified, bundlePath, siteP
 	return p, nil
 }
 
-func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy, initial bool) error {
+func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy, initial bool) (resultErr error) {
+	defer func() {
+		// Canceled reads cannot establish conflicting target or worker evidence.
+		if err := ctx.Err(); err != nil {
+			resultErr = spec.Err(13, "plan validation interrupted: %v", err)
+		}
+	}()
 	if err := e.verifyRecipeBinding(p, v); err != nil {
 		return err
 	}

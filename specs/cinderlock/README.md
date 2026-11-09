@@ -14,14 +14,19 @@ using the normal intent, worker, coordination, approval and recovery owners:
 1. Finish q011's live persistent workflow using the frozen `cac2e73` CLI.
    Installation passed its required workflows. V2 quiesce/backup/migration
    completed with an active `awaiting_adoption` gate; the original Application
-   adopted C2 and post-adoption acceptance is running. Continue through v3's
+   adopted C2 and post-adoption acceptance passed after an explicitly authorized
+   same-run resume. All original worker and volume identities were retained.
+   V3 model preparation completed; its pre-adoption data backup is running.
+   Continue through v3's
    real document deletion and separately authorized restore, preserving the
    failed result and all original workers. The fixture explicitly opts into
    maintenance readiness and uses a narrowly authorized Pod replacement.
-2. Finish catalog integration through its public CLI/API, then combined release
+2. Finish validation interruption diagnostics, then combined release
    gates, feature documentation and publication. Recorded GitOps kinds,
    check-only policy evaluation, predecessor agreement and waiting notices
-   have regression tests; catalog review never grants engine authority.
+   have regression tests and actual-journal CLI subject/comparison proof;
+   catalog review never grants engine authority. Preserve unavailable worker
+   reads as unverified evidence rather than claiming a changed recipe.
 
 | Source | Completed evidence and boundary | Private records |
 | --- | --- | --- |

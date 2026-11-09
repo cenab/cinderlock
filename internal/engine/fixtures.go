@@ -109,7 +109,11 @@ func referencesFixture(value any, pvc string) bool {
 func (e *Engine) fixtureFindings(ctx context.Context, p spec.Plan, v *bundle.Verified) []spec.Finding {
 	findings := []spec.Finding{}
 	block := func(err error) {
-		findings = append(findings, spec.Finding{Code: "CHECK_FIXTURE_UNSUPPORTED", Severity: "blocker", Message: err.Error(), Source: "dedicated native fixture profile"})
+		code := "CHECK_FIXTURE_UNSUPPORTED"
+		if spec.ExitCode(err) == 13 {
+			code = "CHECK_FIXTURE_UNVERIFIED"
+		}
+		findings = append(findings, spec.Finding{Code: code, Severity: "blocker", Message: err.Error(), Source: "dedicated native fixture profile"})
 	}
 	var objects []map[string]any
 	needsChart, needsFixtures := false, false
