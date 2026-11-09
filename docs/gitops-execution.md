@@ -7,11 +7,10 @@ application checks. Neither plan writes Git, syncs Argo, invokes a Helm writer,
 or adopts resources from another owner.
 
 This profile implements stateless applications with optional prepared model
-claims. Mutable application data, pre-adoption quiesce/backup/migration,
-post-adoption resume-writes and synthetic restore remain unimplemented. Releases
-containing those procedures are rejected by this profile; retaining their
-declarations does not make them executable here. Source-file reversion evidence
-does not supply application or data recovery.
+claims. Applications with mutable data use the separate
+[data procedure profile](gitops-data.md), including its pre-adoption gate and
+separately authorized recovery. This stateless check command rejects those
+releases. Source-file reversion evidence does not supply data recovery.
 
 ## Select the signed recipes
 

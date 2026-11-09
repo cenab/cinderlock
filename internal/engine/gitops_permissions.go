@@ -14,21 +14,21 @@ func (e *Engine) gitOpsPermissionReads(p spec.Plan) ([]authorizationv1.ResourceA
 		reads = append(reads, authorizationv1.ResourceAttributes{Namespace: e.Site.Spec.Namespace, Group: group, Resource: resource, Name: name, Verb: "get"})
 	}
 	// Models and dedicated fixtures also exclude pending native controllers.
-	if len(p.Operations) > 0 || p.GitOps != nil && p.GitOps.Preparation != nil {
+	if len(p.Operations) > 0 || p.GitOps != nil && p.GitOps.Preparation != nil || gitOpsDataPhase(p) {
 		for _, scope := range []struct{ group, resource string }{{"apps", "deployments"}, {"apps", "statefulsets"}, {"apps", "daemonsets"}, {"apps", "replicasets"}, {"batch", "jobs"}, {"batch", "cronjobs"}, {"", "replicationcontrollers"}, {"", "podtemplates"}} {
 			reads = append(reads, authorizationv1.ResourceAttributes{Namespace: e.Site.Spec.Namespace, Group: scope.group, Resource: scope.resource, Verb: "list"})
 		}
 	}
 	// Selected Helm history absence; stateless checks need no consumer Pod list.
 	reads = append(reads, authorizationv1.ResourceAttributes{Namespace: e.Site.Spec.Namespace, Resource: "secrets", Verb: "list"})
-	if len(p.Operations) > 0 || p.GitOps != nil && p.GitOps.Preparation != nil {
+	if len(p.Operations) > 0 || p.GitOps != nil && p.GitOps.Preparation != nil || gitOpsDataPhase(p) {
 		reads = append(reads, authorizationv1.ResourceAttributes{Namespace: e.Site.Spec.Namespace, Resource: "pods", Verb: "list"})
 	}
 	if p.GitOps != nil && p.GitOps.Contract != nil {
 		c := p.GitOps.Contract
 		reads = append(reads, authorizationv1.ResourceAttributes{Namespace: c.Namespace, Group: "argoproj.io", Resource: "applications", Name: c.Name, Verb: "get"})
 	}
-	if p.GitOps != nil && p.GitOps.Preparation != nil {
+	if p.GitOps != nil && p.GitOps.Preparation != nil || gitOpsDataPhase(p) {
 		add("apps", "replicasets", "")
 		add("", "pods", "")
 	}
@@ -44,6 +44,8 @@ func (e *Engine) gitOpsPermissionReads(p spec.Plan) ([]authorizationv1.ResourceA
 	}
 	for _, fact := range p.Snapshot.Facts {
 		switch {
+		case strings.HasPrefix(fact.Name, "gitops/data/"):
+			add("", "persistentvolumeclaims", strings.TrimPrefix(fact.Name, "gitops/data/"))
 		case strings.HasPrefix(fact.Name, "gitops/prepared-volume/"):
 			add("", "persistentvolumeclaims", strings.TrimPrefix(fact.Name, "gitops/prepared-volume/"))
 		case strings.HasPrefix(fact.Name, "secret/image-pull-"):

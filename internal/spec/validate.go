@@ -179,6 +179,9 @@ func ValidateRelease(r Release) error {
 			return Err(2, "embedding transition requires explicit reindex operation")
 		}
 	}
+	if err := validateGitOpsData(r); err != nil {
+		return err
+	}
 	return validateReleaseContracts(r)
 }
 

@@ -190,9 +190,19 @@ recovery HTML were retained. The downloaded artifact's SHA-256 matches GitHub's
 declared digest. These receipts are private under
 `.local/hosted-ci-42471082512/`.
 
-The later `c444900` preparation/check implementation has the separately scoped
-local qualification above. The completed hosted run does not qualify those
-later changes automatically.
+[GitHub run 42586550869](https://github.com/cenab/cinderlock/actions/runs/42586550869)
+passed both jobs for `504b542` on November 9, 2026 UTC. Its downloaded Kubernetes
+artifact matches the declared SHA-256. The four exact result receipts show
+installation and upgrade passed, required document-loss workflows failed with
+acceptance unestablished, and a separate recovery passed while naming that
+failed run. The optional negative numeric check remained optional. The Go job
+passed its build, race, scan, integration-input, patched-Helm, and offline
+distribution gates. Private receipts remain under
+`.local/hosted-ci-42586550869/`.
+
+That hosted fixture exercises native CPU delivery and recovery. The separately
+scoped local qualification above covers the live `c444900` model/check phases.
+Neither result qualifies later mutable-data code automatically.
 
 ## Reproduce and extend the evidence
 

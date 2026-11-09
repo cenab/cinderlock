@@ -21,12 +21,12 @@ import (
 
 func TestGitOpsRootModelMountNeedsExplicitContainerReadOnly(t *testing.T) {
 	pod := corev1.PodSpec{Containers: []corev1.Container{{Name: "application", VolumeMounts: []corev1.VolumeMount{{Name: "models", MountPath: "/models", ReadOnly: true}}}}, Volumes: []corev1.Volume{{Name: "models", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "model-v1"}}}}}
-	mounts, err := gitOpsClaimMounts(pod, "model-v1", "")
+	mounts, err := gitOpsClaimMounts(pod, "model-v1", "", true)
 	if err != nil || len(mounts) != 1 || mounts[0].Mount.MountPath != "/models" || mounts[0].Mount.SubPath != "" || !mounts[0].Mount.ReadOnly {
 		t.Fatalf("explicit root read-only mount rejected because source bit is omitted: %v %#v", err, mounts)
 	}
 	pod.Containers[0].VolumeMounts[0].ReadOnly = false
-	if _, err := gitOpsClaimMounts(pod, "model-v1", ""); err == nil {
+	if _, err := gitOpsClaimMounts(pod, "model-v1", "", true); err == nil {
 		t.Fatal("writable model mount accepted")
 	}
 }
@@ -69,7 +69,7 @@ func TestGitOpsNativeChartRootModelMount(t *testing.T) {
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(objects[0], &deployment); err != nil {
 		t.Fatal(err)
 	}
-	mounts, err := gitOpsClaimMounts(deployment.Spec.Template.Spec, "model-v1", "")
+	mounts, err := gitOpsClaimMounts(deployment.Spec.Template.Spec, "model-v1", "", true)
 	if err != nil || len(mounts) != 1 || !mounts[0].Mount.ReadOnly || mounts[0].Mount.MountPath != "/models" || mounts[0].Mount.SubPath != "" {
 		t.Fatalf("unchanged native chart model root mapping rejected: %v %#v", err, mounts)
 	}

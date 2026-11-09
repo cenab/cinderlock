@@ -11,7 +11,7 @@ import (
 func TestGitOpsNativeTransferRechecksBeforeStartingVerifier(t *testing.T) {
 	for _, change := range []string{"source", "authorization"} {
 		t.Run(change, func(t *testing.T) {
-			f := newGitOpsExecutionFixture(t, true, change)
+			f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{models: true, preparationBoundary: change})
 			if f.prepared == nil || f.preparationError == nil {
 				t.Fatal("changed boundary did not block preparation", f.preparationError)
 			}
@@ -24,7 +24,7 @@ func TestGitOpsNativeTransferRechecksBeforeStartingVerifier(t *testing.T) {
 }
 
 func TestGitOpsPreparationResumesOriginalTransferIntoUsableReceipt(t *testing.T) {
-	f := newGitOpsExecutionFixture(t, true, "authorization")
+	f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{models: true, preparationBoundary: "authorization"})
 	if f.prepared == nil || f.preparationError == nil {
 		t.Fatal("experiment did not stop after the original transfer")
 	}
@@ -64,7 +64,7 @@ func TestGitOpsPreparationResumesOriginalTransferIntoUsableReceipt(t *testing.T)
 func TestGitOpsChecksRejectAcceptedReleaseReplay(t *testing.T) {
 	for _, when := range []string{"planning", "after-plan"} {
 		t.Run(when, func(t *testing.T) {
-			f := newGitOpsExecutionFixture(t, false)
+			f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{})
 			ctx := context.Background()
 			plan, err := f.e.GitOpsChecksPlan(ctx, f.v, "verified.cinder", f.sitePath, f.policy, f.binding)
 			if err != nil || !plan.Executable {

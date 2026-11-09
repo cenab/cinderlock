@@ -29,7 +29,13 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 		return spec.RunResult{}, spec.Err(2, "unsupported plan kind")
 	}
 	if gitOpsPhase(p) {
-		if _, err := e.gitOpsStageReference(ctx, p.GitOps.Staging, v, p.SitePath, policy, true); err != nil {
+		var err error
+		if gitOpsDataPhase(p) {
+			_, err = e.gitOpsHistoricalStage(ctx, p.GitOps.Staging, v, true)
+		} else {
+			_, err = e.gitOpsStageReference(ctx, p.GitOps.Staging, v, p.SitePath, policy, true)
+		}
+		if err != nil {
 			return spec.RunResult{}, err
 		}
 	}
@@ -125,7 +131,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		if spec.ExitCode(err) == 17 {
 			result.State = "stopped"
 		}
-		if p.Kind == "RecoveryPlan" && result.State == "failed" {
+		if (p.Kind == "RecoveryPlan" || p.Kind == "GitOpsDataRecoveryPlan") && result.State == "failed" {
 			result.State = "recovery_failed"
 		}
 		active := true
@@ -323,6 +329,32 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	if _, err := e.authorize(p, policy, a, approved); err != nil {
 		return fail(err)
 	}
+	if p.Kind == "GitOpsDataPlan" {
+		if err := e.gitOpsCompletedDataSteps(ctx, result.RunID, p, result); err != nil {
+			return fail(err)
+		}
+		if err := e.gitOpsTerminalWorkers(ctx, result.RunID, true); err != nil {
+			return fail(err)
+		}
+		checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary)
+		if err != nil {
+			recordPrerequisiteFailure(&result, checks)
+			return fail(err)
+		}
+		mergeCheckResults(&result, checks)
+		if _, err := checkBoundary(); err != nil {
+			return fail(err)
+		}
+		result.State, result.FinishedAt = "awaiting_adoption", spec.Now()
+		result.Findings = append(result.Findings, p.Findings...)
+		if err := e.clusterRecord(ctx, result.RunID, result.PlanDigest, result.State, result); err != nil {
+			return fail(err)
+		}
+		if err := e.Store.SetState(ctx, result.RunID, result.State, true, result); err != nil {
+			return fail(err)
+		}
+		return result, nil
+	}
 	if p.Kind == "ArtifactsPlan" {
 		result.State, result.FinishedAt = "artifacts_staged", spec.Now()
 		result.Findings = append(result.Findings, p.Findings...)
@@ -409,7 +441,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			return fail(err)
 		}
 	}
-	if p.Kind == "GitOpsChecksPlan" {
+	if gitOpsApplicationChecks(p) {
 		if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary); err != nil {
 			recordPrerequisiteFailure(&result, checks)
 			return fail(err)
@@ -481,7 +513,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		recordPrerequisiteFailure(&result, checks)
 		return fail(err)
 	}
-	if p.Kind == "GitOpsChecksPlan" {
+	if gitOpsApplicationChecks(p) {
 		if err := e.verifyGitOpsModels(ctx, p, v, result.RunID, "finish", checkBoundary, &result); err != nil {
 			return fail(err)
 		}
@@ -493,7 +525,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	result.State = "succeeded"
 	result.Acceptance = "pass"
 	result.FinishedAt = spec.Now()
-	if p.Kind == "RecoveryPlan" {
+	if p.Kind == "RecoveryPlan" || p.Kind == "GitOpsDataRecoveryPlan" {
 		result.State = "recovered"
 		result.Domains["recovery"] = "pass"
 		result.RecoveryCoverage = "executed declared recovery on this target; data scope is the recovery plan"

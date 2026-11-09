@@ -37,7 +37,7 @@ type jobOptions struct {
 	ReadOnlyPVC       bool
 	ManifestConfigMap string
 	IntentStepID      string
-	Fixtures          []seedVolumeBinding
+	Fixtures          []SeedVolumeBinding
 	Endpoint          *spec.Check
 	Resources         *spec.WorkerResources
 	BeforeCreate      func() error
@@ -310,7 +310,7 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 		return result
 	}
 	var fixturePlan spec.Plan
-	var fixtures []seedVolumeBinding
+	var fixtures []SeedVolumeBinding
 	if len(c.Fixtures) > 0 {
 		var err error
 		fixturePlan, err = e.fixtureRunPlan(ctx, runID)

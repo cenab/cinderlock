@@ -54,9 +54,10 @@ type Deployment struct {
 	GitOps        *GitOps                `json:"gitOps,omitempty" yaml:"gitOps,omitempty"`
 }
 type GitOps struct {
-	Owner    string `json:"owner" yaml:"owner"`
-	Revision string `json:"revision" yaml:"revision"`
-	Path     string `json:"path" yaml:"path"`
+	Data     *GitOpsDataProcedures `json:"data,omitempty" yaml:"data,omitempty"`
+	Owner    string                `json:"owner" yaml:"owner"`
+	Revision string                `json:"revision" yaml:"revision"`
+	Path     string                `json:"path" yaml:"path"`
 }
 type ImageBinding struct {
 	Asset      string `json:"asset" yaml:"asset"`
@@ -158,13 +159,14 @@ type Check struct {
 	AuthorizationSecretRef string `json:"authorizationSecretRef,omitempty" yaml:"authorizationSecretRef,omitempty"`
 }
 type Recovery struct {
-	ID             string      `json:"id" yaml:"id"`
-	ToRelease      string      `json:"toRelease" yaml:"toRelease"`
-	DataRevision   string      `json:"dataRevision,omitempty" yaml:"dataRevision,omitempty"`
-	Destructive    bool        `json:"destructive,omitempty" yaml:"destructive,omitempty"`
-	RequiresBackup bool        `json:"requiresBackup,omitempty" yaml:"requiresBackup,omitempty"`
-	Operations     []Operation `json:"operations" yaml:"operations"`
-	Checks         []Check     `json:"checks" yaml:"checks"`
+	GitOpsData     *GitOpsDataProcedures `json:"gitOpsData,omitempty" yaml:"gitOpsData,omitempty"`
+	ID             string                `json:"id" yaml:"id"`
+	ToRelease      string                `json:"toRelease" yaml:"toRelease"`
+	DataRevision   string                `json:"dataRevision,omitempty" yaml:"dataRevision,omitempty"`
+	Destructive    bool                  `json:"destructive,omitempty" yaml:"destructive,omitempty"`
+	RequiresBackup bool                  `json:"requiresBackup,omitempty" yaml:"requiresBackup,omitempty"`
+	Operations     []Operation           `json:"operations" yaml:"operations"`
+	Checks         []Check               `json:"checks" yaml:"checks"`
 }
 type FileRecord struct {
 	Path   string `json:"path" yaml:"path"`

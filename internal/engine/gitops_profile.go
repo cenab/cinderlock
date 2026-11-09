@@ -94,14 +94,31 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 	if r.Spec.Deployment.Type != "gitops" || declared == nil || declared.Owner != "argocd" || !gitOpsTargetPath(declared.Path) || !spec.ValidGitOpsCommit(declared.Revision) || e.Site.Spec.Profile != r.Spec.Profile {
 		return out, spec.Err(10, "GitOps profile requires signed Argo CD ownership, a confined YAML path, and matching Site profile")
 	}
+	if needsHardware(r.Spec.AIProfile) {
+		return out, spec.Err(10, "hardware-dependent rendering is outside this directory profile")
+	}
+	return e.observeGitOpsInventory(ctx, policy, sitePath, contract, reviewedManifest, gitOpsInventory{digest: v.Digest, path: declared.Path, render: v})
+}
+
+// A nil render is reserved for inventory already bound by an accepted local run.
+type gitOpsInventory struct {
+	digest string
+	path   string
+	render *bundle.Verified
+}
+
+func (e *Engine) observeGitOpsInventory(ctx context.Context, policy spec.TrustPolicy, sitePath string, contract spec.GitOpsProfileContract, reviewedManifest []byte, inventory gitOpsInventory) (out GitOpsProfileObservation, err error) {
+	if err = spec.ValidateGitOpsProfileContract(contract, time.Now()); err != nil {
+		return out, err
+	}
+	if e == nil || !spec.ValidDigest(inventory.digest) || !gitOpsTargetPath(inventory.path) || spec.ValidatePolicy(policy) != nil || spec.ValidateSite(e.Site) != nil || len(validation.IsDNS1123Label(e.Site.Spec.Namespace)) != 0 || sitePath == "" || e.StateDir == "" {
+		return out, spec.Err(2, "GitOps inventory requires a bound digest, confined path, valid current policy and explicit Site")
+	}
 	if !slices.Contains(e.Site.Spec.AllowedActions, "gitops-observe") || !slices.Contains(policy.Spec.AllowedActions, "gitops-observe") {
 		return out, spec.Err(16, "GitOps observation capability is not admitted by both Site and policy")
 	}
 	if len(reviewedManifest) == 0 || len(reviewedManifest) > maxGitOpsFileBytes || !utf8.Valid(reviewedManifest) || bytes.IndexByte(reviewedManifest, 0) >= 0 || spec.Hash(reviewedManifest) != contract.ManifestDigest {
 		return out, spec.Err(2, "GitOps reviewed manifest must match its exact bounded SHA-256 input")
-	}
-	if needsHardware(r.Spec.AIProfile) {
-		return out, spec.Err(10, "hardware-dependent rendering is outside this directory profile")
 	}
 	desired, parseErr := e.gitOpsProfileInventory(reviewedManifest, contract)
 	if parseErr != nil {
@@ -114,7 +131,7 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 	if siteErr != nil || policyErr != nil || contractErr != nil {
 		return out, spec.Err(2, "GitOps profile inputs cannot be canonically bound")
 	}
-	out = GitOpsProfileObservation{Header: spec.NewHeader("GitOpsProfileObservation"), Profile: contract.Profile, Owner: "argocd", Namespace: contract.Namespace, Name: contract.Name, AcceptedRevision: contract.AcceptedRevision, RepositoryURLDigest: spec.Hash([]byte(contract.RepositoryURL)), ManifestDigest: contract.ManifestDigest, BundleDigest: v.Digest, SiteDigest: siteDigest, PolicyDigest: policyDigest, ContractDigest: contractDigest, SourcePath: declared.Path, ObservedAt: spec.Now(), Resources: []GitOpsProfileResourceObservation{}, Findings: []spec.Finding{}, ApplicationAcceptance: "not_established", Limit: "Supplied-field and ownership evidence at one point in time only; general drift absence, future exclusive writers, application workflow acceptance, model/data preparation, source-tree rollback, and data recovery are not established."}
+	out = GitOpsProfileObservation{Header: spec.NewHeader("GitOpsProfileObservation"), Profile: contract.Profile, Owner: "argocd", Namespace: contract.Namespace, Name: contract.Name, AcceptedRevision: contract.AcceptedRevision, RepositoryURLDigest: spec.Hash([]byte(contract.RepositoryURL)), ManifestDigest: contract.ManifestDigest, BundleDigest: inventory.digest, SiteDigest: siteDigest, PolicyDigest: policyDigest, ContractDigest: contractDigest, SourcePath: inventory.path, ObservedAt: spec.Now(), Resources: []GitOpsProfileResourceObservation{}, Findings: []spec.Finding{}, ApplicationAcceptance: "not_established", Limit: "Supplied-field and ownership evidence at one point in time only; general drift absence, future exclusive writers, application workflow acceptance, model/data preparation, source-tree rollback, and data recovery are not established."}
 	var observedController *unstructured.Unstructured
 	// Finalize after the deferred source, namespace, history, and policy reads.
 	defer func() {
@@ -172,22 +189,24 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 			out.block("HELM_CHANGED", "selected Helm history changed during controller observation")
 		}
 	}()
-	objects, renderErr := e.renderWithContext(ctx, v, helmRenderContext{})
-	var rendered []byte
-	if renderErr == nil {
-		rendered, renderErr = encodeObjects(objects)
+	if inventory.render != nil {
+		objects, renderErr := e.renderWithContext(ctx, inventory.render, helmRenderContext{})
+		var rendered []byte
+		if renderErr == nil {
+			rendered, renderErr = encodeObjects(objects)
+		}
+		if len(rendered) > maxGitOpsFileBytes {
+			renderErr = spec.Err(10, "render exceeds controller profile limit")
+		}
+		if renderErr != nil {
+			out.block("RENDER_UNAVAILABLE", "verified desired-state rendering could not be established")
+			return out, nil
+		}
+		if !bytes.Equal(rendered, reviewedManifest) {
+			return GitOpsProfileObservation{}, spec.Err(2, "GitOps reviewed manifest differs from the verified bundle and Site render")
+		}
 	}
-	if len(rendered) > maxGitOpsFileBytes {
-		renderErr = spec.Err(10, "render exceeds controller profile limit")
-	}
-	if renderErr != nil {
-		out.block("RENDER_UNAVAILABLE", "verified desired-state rendering could not be established")
-		return out, nil
-	}
-	if !bytes.Equal(rendered, reviewedManifest) {
-		return GitOpsProfileObservation{}, spec.Err(2, "GitOps reviewed manifest differs from the verified bundle and Site render")
-	}
-	source, sourceErr := ProposeGitOpsSource(ctx, contract.Repository, contract.AcceptedRevision, declared.Path, reviewedManifest)
+	source, sourceErr := ProposeGitOpsSource(ctx, contract.Repository, contract.AcceptedRevision, inventory.path, reviewedManifest)
 	if sourceErr != nil || source.Patch != "" {
 		out.block("SOURCE_MISMATCH", "accepted local HEAD, index, and signed file do not exactly match the reviewed render")
 		return out, nil
@@ -198,13 +217,13 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 		return out, nil
 	}
 	defer func() {
-		current, sourceErr := ProposeGitOpsSource(ctx, contract.Repository, contract.AcceptedRevision, declared.Path, reviewedManifest)
+		current, sourceErr := ProposeGitOpsSource(ctx, contract.Repository, contract.AcceptedRevision, inventory.path, reviewedManifest)
 		if sourceErr != nil || current != source {
 			out.block("SOURCE_CHANGED", "local accepted source changed during observation")
 		}
 	}()
 	if contract.Reversion != nil {
-		facts, reversionErr := ObserveGitOpsReversion(ctx, &GitOpsSourceReversion{Repository: contract.Repository, PreviousRevision: contract.Reversion.PreviousRevision, RestoredRevision: contract.Reversion.RestoredRevision}, contract.AcceptedRevision, declared.Path, reviewedManifest)
+		facts, reversionErr := ObserveGitOpsReversion(ctx, &GitOpsSourceReversion{Repository: contract.Repository, PreviousRevision: contract.Reversion.PreviousRevision, RestoredRevision: contract.Reversion.RestoredRevision}, contract.AcceptedRevision, inventory.path, reviewedManifest)
 		if reversionErr != nil {
 			out.block("REVERSION_UNAVAILABLE", "historical restoration of the exact signed file could not be established")
 			return out, nil
@@ -238,7 +257,7 @@ func (e *Engine) ObserveGitOpsProfile(ctx context.Context, v *bundle.Verified, p
 		return out, nil
 	}
 	observedController = application
-	if !gitOpsProfileApplication(application, contract, site.Spec.Namespace, declared.Path, &out) {
+	if !gitOpsProfileApplication(application, contract, site.Spec.Namespace, inventory.path, &out) {
 		out.block("CONTROLLER_MISMATCH", "Application identity, source, destination, operation, or original freshness facts do not satisfy the profile")
 		return out, nil
 	}

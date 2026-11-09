@@ -11,11 +11,12 @@ whole feature set. It does not establish a customer pilot or hardware support.
 Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
 using the normal intent, worker, coordination, approval and recovery owners:
 
-1. Implement mutable data procedures around independent source adoption and
-   separately authorized restoration. Reuse the exact active-gate transfer;
-   model preparation and healthy controller status cannot substitute for data
-   quiescence, backup, migration, resume-writes or recovery.
-2. Qualify the persistent q007 workflow through the resulting public CLI, then
+1. Merge and freeze the mutable data pass's exact source and CLI. Its reviewed
+   unit/race/vet gates pass. The [data contracts](mutable-gitops.md) implement
+   separate pre-adoption, post-adoption and same-source recovery plans through
+   normal authorization, workers, acceptance and exact active-gate transfer.
+2. Qualify a fresh persistent workflow from the retained q007 inputs through
+   the resulting public CLI, then
    finish the combined release gates, feature documentation and publication.
    Keep failed upgrade acceptance separate from successful recovery.
 
@@ -34,8 +35,10 @@ Prerequisite duplication was removed while retaining actual-start, post-wait
 and final guards; no matched live speedup is claimed. Source size audit lists
 zero files over 8,000 tokens, without a hook or added dependency.
 
-The private q007 persistent draft retains its original procedures and awaits
-actual data contracts. The separate q009 model/stateless workflow passed with a
+The private q007 persistent draft retains its original procedures. Prepare a
+fresh execution from those inputs, preserving actual restart/persistence and
+restore behavior without introducing another desired-state writer. The
+separate q009 model/stateless workflow passed with a
 frozen `c444900` CLI and the protocol-compatible `8db0077` helper; original q006,
 q008 and native005 evidence stays unchanged. The user will supply NVIDIA
 hardware later; keep that qualification open.

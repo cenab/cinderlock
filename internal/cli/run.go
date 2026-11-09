@@ -446,7 +446,7 @@ func addAuthorize(g *cobra.Command, o *options) {
 		if e = spec.SignAuthorization(&a, private, id); e != nil {
 			return e
 		}
-		if p.Kind == "GitOpsPreparePlan" || p.Kind == "GitOpsChecksPlan" {
+		if p.GitOps != nil {
 			e = engine.WriteGitOpsPhaseAuthorization(p, a, out)
 		} else {
 			e = spec.Write(out, a)

@@ -22,6 +22,9 @@ func PlanActions(p Plan) []string {
 		add("gitops-stage")
 	case "GitOpsPreparePlan":
 		add("gitops-prepare")
+	case "GitOpsDataPlan", "GitOpsDataChecksPlan", "GitOpsDataRecoveryPlan":
+		add("gitops-data")
+		add("gitops-observe")
 	case "GitOpsChecksPlan":
 		add("gitops-check")
 		add("gitops-observe")

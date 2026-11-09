@@ -16,6 +16,7 @@ import (
 	"github.com/cenab/cinderlock/internal/bundle"
 	"github.com/cenab/cinderlock/internal/modelstage"
 	"github.com/cenab/cinderlock/internal/spec"
+	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -37,7 +38,14 @@ type gitOpsExecutionFixture struct {
 	preparationError error
 }
 
-func newGitOpsExecutionFixture(t *testing.T, models bool, preparationMode ...string) *gitOpsExecutionFixture {
+type gitOpsFixtureOptions struct {
+	models              bool
+	data                bool
+	preparationBoundary string
+}
+
+func newGitOpsExecutionFixture(t *testing.T, options gitOpsFixtureOptions) *gitOpsExecutionFixture {
+	models := options.models
 	t.Helper()
 	ctx := context.Background()
 	f := newProfileFixture(t)
@@ -116,6 +124,18 @@ func newGitOpsExecutionFixture(t *testing.T, models bool, preparationMode ...str
 		f.e.Site.Spec.HelperImage = imageBundle.Index.Lock.Assets[0].Digest
 		f.e.Site.Spec.CapacityBytes = 100000
 	}
+	if options.data {
+		f.v.Index.Lock.Release.Spec.Deployment.GitOps.Data = &spec.GitOpsDataProcedures{PVC: "application-data"}
+		f.v.Index.Lock.Release.Spec.Transitions[0].FromRelease = "install"
+		f.v.Index.Lock.Release.Spec.Transitions[0].ToDataRevision = "schema-1"
+		f.e.Site.Spec.DataRevision = "schema-1"
+		f.e.Site.Spec.CapacityBytes = 1 << 30
+		f.e.Site.Spec.AllowedActions = append(f.e.Site.Spec.AllowedActions, "gitops-data", "backup", "migrate", "reindex")
+		_, err := f.kube.CoreV1().PersistentVolumeClaims("test").Create(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "application-data", Namespace: "test", UID: "application-data-uid"}, Spec: corev1.PersistentVolumeClaimSpec{VolumeName: "external-data-volume", AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}}, Status: corev1.PersistentVolumeClaimStatus{Phase: corev1.ClaimBound}}, metav1.CreateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -145,14 +165,23 @@ func newGitOpsExecutionFixture(t *testing.T, models bool, preparationMode ...str
 		body, err := originalRenderer(ctx, args...)
 		if args[0] == "template" {
 			body = bytes.ReplaceAll(body, []byte(oldImage), []byte(newImage))
-			if models {
+			if models || options.data {
 				objects, err := PermissionObjects(body)
 				if err != nil {
 					return nil, err
 				}
 				pod := objects[0]["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-				pod["volumes"] = []any{map[string]any{"name": "models", "persistentVolumeClaim": map[string]any{"claimName": "model-v2"}}}
-				pod["containers"].([]any)[0].(map[string]any)["volumeMounts"] = []any{map[string]any{"name": "models", "mountPath": "/models", "readOnly": true}}
+				volumes, mounts := []any{}, []any{}
+				if models {
+					volumes = append(volumes, map[string]any{"name": "models", "persistentVolumeClaim": map[string]any{"claimName": "model-v2"}})
+					mounts = append(mounts, map[string]any{"name": "models", "mountPath": "/models", "readOnly": true})
+				}
+				if options.data {
+					volumes = append(volumes, map[string]any{"name": "data", "persistentVolumeClaim": map[string]any{"claimName": "application-data"}})
+					mounts = append(mounts, map[string]any{"name": "data", "mountPath": "/data"})
+				}
+				pod["volumes"] = volumes
+				pod["containers"].([]any)[0].(map[string]any)["volumeMounts"] = mounts
 				return encodeObjects(objects)
 			}
 		}
@@ -249,13 +278,13 @@ func newGitOpsExecutionFixture(t *testing.T, models bool, preparationMode ...str
 			t.Fatalf("native preparation plan blocked: %v %#v", err, plan.Findings)
 		}
 		authorization := fixture.approval(t, plan)
-		if len(preparationMode) > 0 {
+		if options.preparationBoundary != "" {
 			originalAttach := f.e.ModelAttach
 			f.e.ModelAttach = func(ctx context.Context, name string, input io.Reader, stdout, stderr io.Writer) error {
 				if err := originalAttach(ctx, name, input, stdout, stderr); err != nil {
 					return err
 				}
-				if preparationMode[0] == "source" {
+				if options.preparationBoundary == "source" {
 					return os.WriteFile(filepath.Join(f.repo.dir, "application.yaml"), []byte("source changed during transfer"), 0600)
 				}
 				authorization.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
@@ -263,7 +292,7 @@ func newGitOpsExecutionFixture(t *testing.T, models bool, preparationMode ...str
 			}
 		}
 		result, err := f.e.Apply(ctx, plan, f.v, f.policy, authorization, false)
-		if len(preparationMode) > 0 {
+		if options.preparationBoundary != "" {
 			fixture.preparationPlan, fixture.preparationError, fixture.prepared = plan, err, &result
 			return fixture
 		}
@@ -307,13 +336,53 @@ func newGitOpsExecutionFixture(t *testing.T, models bool, preparationMode ...str
 				podFields["f:containers"].(map[string]any)[`k:{"name":"app"}`].(map[string]any)["f:volumeMounts"] = map[string]any{`k:{"mountPath":"/models"}`: map[string]any{".": map[string]any{}, "f:name": map[string]any{}, "f:mountPath": map[string]any{}, "f:readOnly": map[string]any{}}}
 				profileSet(t, resource, fields, "metadata", "managedFields")
 			}
+			if options.data {
+				volumes, _, _ := unstructured.NestedSlice(resource.Object, "spec", "template", "spec", "volumes")
+				volumes = append(volumes, map[string]any{"name": "data", "persistentVolumeClaim": map[string]any{"claimName": "application-data"}})
+				profileSet(t, resource, volumes, "spec", "template", "spec", "volumes")
+				mounts, _ := containers[0].(map[string]any)["volumeMounts"].([]any)
+				containers[0].(map[string]any)["volumeMounts"] = append(mounts, map[string]any{"name": "data", "mountPath": "/data"})
+				fields, _, _ := unstructured.NestedSlice(resource.Object, "metadata", "managedFields")
+				podFields := fields[0].(map[string]any)["fieldsV1"].(map[string]any)["f:spec"].(map[string]any)["f:template"].(map[string]any)["f:spec"].(map[string]any)
+				volumesFields, _ := podFields["f:volumes"].(map[string]any)
+				if volumesFields == nil {
+					volumesFields = map[string]any{}
+				}
+				volumesFields[`k:{"name":"data"}`] = map[string]any{".": map[string]any{}, "f:name": map[string]any{}, "f:persistentVolumeClaim": map[string]any{"f:claimName": map[string]any{}}}
+				podFields["f:volumes"] = volumesFields
+				containerFields := podFields["f:containers"].(map[string]any)[`k:{"name":"app"}`].(map[string]any)
+				mountFields, _ := containerFields["f:volumeMounts"].(map[string]any)
+				if mountFields == nil {
+					mountFields = map[string]any{}
+				}
+				mountFields[`k:{"mountPath":"/data"}`] = map[string]any{".": map[string]any{}, "f:name": map[string]any{}, "f:mountPath": map[string]any{}}
+				containerFields["f:volumeMounts"] = mountFields
+				profileSet(t, resource, fields, "metadata", "managedFields")
+			}
 			profileSet(t, resource, containers, "spec", "template", "spec", "containers")
 		}
 	}
 	f.seed(t)
+	if options.data {
+		for _, resource := range f.live {
+			if resource.GetKind() != "Deployment" {
+				continue
+			}
+			var deployment appsv1.Deployment
+			if err := runtime.DefaultUnstructuredConverter.FromUnstructured(resource.Object, &deployment); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.kube.AppsV1().Deployments("test").Create(ctx, &deployment, metav1.CreateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	fixture.binding = spec.GitOpsPlanBinding{ManifestPath: manifestPath, Staging: spec.GitOpsRunReference{RunID: staged.RunID}, Contract: &f.contract}
 	if fixture.prepared != nil {
 		fixture.binding.Preparation = &spec.GitOpsRunReference{RunID: fixture.prepared.RunID}
+	}
+	if options.data {
+		fixture.binding.Data = &spec.GitOpsDataBinding{PVC: "application-data", UID: "application-data-uid", Revision: f.e.Site.Spec.DataRevision, Initial: true}
 	}
 	return fixture
 }
@@ -328,7 +397,7 @@ func (f *gitOpsExecutionFixture) approval(t *testing.T, p spec.Plan) *spec.Autho
 }
 
 func TestGitOpsPreparedModelsReachAuthorizedApplicationChecks(t *testing.T) {
-	f := newGitOpsExecutionFixture(t, true)
+	f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{models: true})
 	ctx := context.Background()
 	if f.prepared == nil || f.binding.Preparation == nil {
 		t.Fatal("native preparation did not produce a separate durable reference")
@@ -372,7 +441,7 @@ func TestGitOpsPreparedModelsReachAuthorizedApplicationChecks(t *testing.T) {
 func TestGitOpsChecksRunBindsAcceptedSourceStageAndFinalCheckpoint(t *testing.T) {
 	for _, change := range []string{"bookkeeping", "resource-uid", "secret-data", "source"} {
 		t.Run(change, func(t *testing.T) {
-			f := newGitOpsExecutionFixture(t, false)
+			f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{})
 			p, err := f.e.GitOpsChecksPlan(context.Background(), f.v, "verified.cinder", f.sitePath, f.policy, f.binding)
 			if err != nil || !p.Executable {
 				t.Fatalf("check plan blocked: %v %#v", err, p.Findings)
@@ -430,7 +499,7 @@ func TestGitOpsChecksRunBindsAcceptedSourceStageAndFinalCheckpoint(t *testing.T)
 }
 
 func TestGitOpsModelBytesChangedDuringWorkflowCannotPassAcceptance(t *testing.T) {
-	f := newGitOpsExecutionFixture(t, true)
+	f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{models: true})
 	ctx := context.Background()
 	p, err := f.e.GitOpsChecksPlan(ctx, f.v, "verified.cinder", f.sitePath, f.policy, f.binding)
 	if err != nil || !p.Executable {
@@ -464,7 +533,7 @@ func TestGitOpsModelBytesChangedDuringWorkflowCannotPassAcceptance(t *testing.T)
 func TestGitOpsPhaseObservationRemainsCurrentAfterDependencyReads(t *testing.T) {
 	for _, change := range []string{"late-source", "late-expiry"} {
 		t.Run(change, func(t *testing.T) {
-			f := newGitOpsExecutionFixture(t, false)
+			f := newGitOpsExecutionFixture(t, gitOpsFixtureOptions{})
 			p, err := f.e.GitOpsChecksPlan(context.Background(), f.v, "verified.cinder", f.sitePath, f.policy, f.binding)
 			if err != nil || !p.Executable {
 				t.Fatalf("baseline phase unavailable: %v %#v", err, p.Findings)

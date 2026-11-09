@@ -15,7 +15,7 @@ import (
 type checkIntent struct {
 	Type     string              `json:"type"`
 	Check    spec.Check          `json:"check"`
-	Fixtures []seedVolumeBinding `json:"fixtures,omitempty"`
+	Fixtures []SeedVolumeBinding `json:"fixtures,omitempty"`
 }
 
 // This marker is written only after a definite fixture-verifier failure and

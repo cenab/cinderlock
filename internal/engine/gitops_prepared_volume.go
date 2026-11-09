@@ -16,8 +16,11 @@ import (
 )
 
 func (e *Engine) gitOpsPreparedVolume(ctx context.Context, p spec.Plan, v *bundle.Verified, claim string) (gitOpsPreparedVolumeBinding, error) {
+	if p.Kind == "GitOpsDataPlan" {
+		return e.gitOpsHistoricalVolume(ctx, p, claim)
+	}
 	var out gitOpsPreparedVolumeBinding
-	if e == nil || v == nil || p.Kind != "GitOpsChecksPlan" || p.GitOps == nil || p.GitOps.Preparation == nil || !validGitOpsRunReference(*p.GitOps.Preparation) || p.BundleDigest != v.Digest {
+	if e == nil || v == nil || !gitOpsApplicationChecks(p) || p.GitOps == nil || p.GitOps.Preparation == nil || !validGitOpsRunReference(*p.GitOps.Preparation) || p.BundleDigest != v.Digest {
 		return out, spec.Err(13, "application claim needs an exact prior native preparation reference")
 	}
 	if err := e.verifyGitOpsBinding(p, v); err != nil {
@@ -32,7 +35,15 @@ func (e *Engine) gitOpsPreparedVolume(ctx context.Context, p spec.Plan, v *bundl
 	if err := spec.Read(e.Site.Spec.TrustPolicy, &policy); err != nil {
 		return out, spec.Err(11, "current preparation policy binding is unavailable")
 	}
-	ref, preparation, result, err := e.gitOpsPreparationRecord(ctx, *p.GitOps.Preparation, v, p.SitePath, policy)
+	var ref spec.GitOpsRunReference
+	var preparation spec.Plan
+	var result spec.RunResult
+	var err error
+	if gitOpsDataPhase(p) {
+		ref, preparation, result, err = e.gitOpsHistoricalPreparation(ctx, *p.GitOps.Preparation, v)
+	} else {
+		ref, preparation, result, err = e.gitOpsPreparationRecord(ctx, *p.GitOps.Preparation, v, p.SitePath, policy)
+	}
 	if err != nil {
 		return out, err
 	}
@@ -51,11 +62,11 @@ func (e *Engine) gitOpsPreparedVolume(ctx context.Context, p spec.Plan, v *bundl
 	if selected == nil {
 		return out, spec.Err(10, "application claim is outside the signed native preparation selection")
 	}
-	out.seedVolumeBinding, err = e.resolveSeedVolumeBinding(ctx, ref.RunID, *selected, v, true)
+	out.SeedVolumeBinding, err = e.resolveSeedVolumeBinding(ctx, ref.RunID, *selected, v, true)
 	if err != nil {
 		return out, err
 	}
-	if err := e.gitOpsSeedReceipt(ctx, ref.RunID, out.seedVolumeBinding, &result.Steps[selectedIndex]); err != nil {
+	if err := e.gitOpsSeedReceipt(ctx, ref.RunID, out.SeedVolumeBinding, &result.Steps[selectedIndex]); err != nil {
 		return out, err
 	}
 	worker, err := e.operationWorker(ctx, ref.RunID, selected.ID, out.SeedAttempt, selected.ID)
@@ -104,7 +115,7 @@ type gitOpsClaimMount struct {
 
 // Only this claim's explicit mapping is projected; commands and configuration
 // remain in memory in the reviewed inventory, never in provenance or snapshots.
-func gitOpsClaimMounts(pod corev1.PodSpec, claim, subPath string) ([]gitOpsClaimMount, error) {
+func gitOpsClaimMounts(pod corev1.PodSpec, claim, subPath string, readOnly bool) ([]gitOpsClaimMount, error) {
 	var volume *corev1.Volume
 	for _, v := range pod.Volumes {
 		if v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == claim {
@@ -130,7 +141,7 @@ func gitOpsClaimMounts(pod corev1.PodSpec, claim, subPath string) ([]gitOpsClaim
 		}
 		for index, mount := range container.VolumeMounts {
 			if mount.Name == volume.Name {
-				if !mount.ReadOnly || mount.SubPath != subPath || mount.SubPathExpr != "" || !nativeMountSupported(mount.MountPath) {
+				if readOnly && !mount.ReadOnly || mount.SubPath != subPath || mount.SubPathExpr != "" || !nativeMountSupported(mount.MountPath) {
 					return nil, spec.Err(10, "prepared application mount differs from its read-only native subpath")
 				}
 				for otherIndex, other := range container.VolumeMounts {
@@ -163,7 +174,7 @@ func (e *Engine) gitOpsClaimDeployments(manifest []byte, contract spec.GitOpsPro
 		if runtime.DefaultUnstructuredConverter.FromUnstructured(object.Object, &deployment) != nil {
 			return nil, spec.Err(10, "prepared application Deployment mapping is malformed")
 		}
-		mounts, err := gitOpsClaimMounts(deployment.Spec.Template.Spec, claim, subPath)
+		mounts, err := gitOpsClaimMounts(deployment.Spec.Template.Spec, claim, subPath, true)
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +225,7 @@ func (e *Engine) gitOpsPreparedConsumers(ctx context.Context, binding gitOpsPrep
 			if _, err := e.inspectWorker(ctx, *original); err != nil {
 				return err
 			}
-			if _, err := gitOpsClaimMounts(pod.Spec, binding.PVC, ""); err == nil {
+			if _, err := gitOpsClaimMounts(pod.Spec, binding.PVC, "", true); err == nil {
 				continue
 			}
 			receiver, err := e.Store.ModelReceiver(ctx, *original)
@@ -247,13 +258,13 @@ func (e *Engine) gitOpsPreparedConsumers(ctx context.Context, binding gitOpsPrep
 				return spec.Err(11, "prepared claim Deployment UID differs from the observed plan")
 			}
 		}
-		expected, err := gitOpsClaimMounts(wanted.Spec.Template.Spec, binding.PVC, binding.SubPath)
+		expected, err := gitOpsClaimMounts(wanted.Spec.Template.Spec, binding.PVC, binding.SubPath, true)
 		if err != nil {
 			return err
 		}
 		digest, _ := spec.Digest(expected)
 		for _, candidate := range []corev1.PodSpec{deployment.Spec.Template.Spec, rs.Spec.Template.Spec, pod.Spec} {
-			mounts, err := gitOpsClaimMounts(candidate, binding.PVC, binding.SubPath)
+			mounts, err := gitOpsClaimMounts(candidate, binding.PVC, binding.SubPath, true)
 			actual, digestErr := spec.Digest(mounts)
 			if err != nil || digestErr != nil || actual != digest {
 				return spec.Err(10, "prepared claim consumer differs from the explicit reviewed mount mapping")

@@ -14,6 +14,20 @@ func validGitOpsRunReference(reference spec.GitOpsRunReference) bool {
 }
 
 func (e *Engine) gitOpsPhaseReference(ctx context.Context, reference spec.GitOpsRunReference, kind, state string, v *bundle.Verified, sitePath string, policy spec.TrustPolicy) (spec.GitOpsRunReference, spec.Plan, spec.RunResult, error) {
+	reference, p, result, err := e.gitOpsPhaseRecord(ctx, reference, kind, state, v)
+	if err != nil {
+		return reference, p, result, err
+	}
+	siteDigest, siteErr := spec.Digest(e.Site)
+	policyDigest, policyErr := spec.Digest(policy)
+	sourceDigest, sourceErr := sourceSiteDigest(sitePath)
+	if siteErr != nil || policyErr != nil || sourceErr != nil || p.SiteDigest != siteDigest || p.SourceSiteDigest != sourceDigest || p.PolicyDigest != policyDigest || p.PolicyEpoch != policy.Spec.Epoch || p.SitePath != sitePath {
+		return reference, p, result, spec.Err(11, "GitOps phase evidence differs from its exact Site, policy, target, recipe or result binding")
+	}
+	return reference, p, result, nil
+}
+
+func (e *Engine) gitOpsPhaseRecord(ctx context.Context, reference spec.GitOpsRunReference, kind, state string, v *bundle.Verified) (spec.GitOpsRunReference, spec.Plan, spec.RunResult, error) {
 	var p spec.Plan
 	var result spec.RunResult
 	if e.Store == nil || !spec.ValidGitOpsIdentity(reference.RunID) {
@@ -25,14 +39,11 @@ func (e *Engine) gitOpsPhaseReference(ctx context.Context, reference spec.GitOps
 	}
 	planDigest, err := spec.Digest(p)
 	resultDigest, resultErr := spec.Digest(result)
-	siteDigest, siteErr := spec.Digest(e.Site)
-	policyDigest, policyErr := spec.Digest(policy)
-	sourceDigest, sourceErr := sourceSiteDigest(sitePath)
 	finished, finishedErr := time.Parse(time.RFC3339Nano, result.FinishedAt)
 	metadataDigest, _ := spec.Digest(p.Metadata)
 	resultMetadata, _ := spec.Digest(result.Metadata)
 	releaseMetadata, _ := spec.Digest(v.Index.Lock.Release.Metadata)
-	if err != nil || resultErr != nil || siteErr != nil || policyErr != nil || sourceErr != nil || finishedErr != nil || finished.After(time.Now()) || p.Kind != kind || spec.ValidateHeader(result.Header, "RunResult") != nil || record.PlanDigest != planDigest || p.BundleDigest != v.Digest || p.SiteDigest != siteDigest || p.SourceSiteDigest != sourceDigest || p.PolicyDigest != policyDigest || p.PolicyEpoch != policy.Spec.Epoch || p.SitePath != sitePath || p.Snapshot.SiteID != e.Site.Metadata.Name || record.Application != p.Metadata.Application || record.Namespace != e.Site.Spec.Namespace || result.RunID != record.ID || result.SiteID != p.Snapshot.SiteID || result.PlanDigest != planDigest || result.BundleDigest != v.Digest || result.TargetID != p.Snapshot.TargetID || record.TargetID != p.Snapshot.TargetID || result.State != state || result.Acceptance != "not_established" || result.Error != "" || metadataDigest != resultMetadata || metadataDigest != releaseMetadata || reference.PlanDigest != "" && reference.PlanDigest != planDigest || reference.ResultDigest != "" && reference.ResultDigest != resultDigest {
+	if err != nil || resultErr != nil || finishedErr != nil || finished.After(time.Now()) || p.Kind != kind || spec.ValidateHeader(result.Header, "RunResult") != nil || record.PlanDigest != planDigest || p.BundleDigest != v.Digest || p.Snapshot.SiteID != e.Site.Metadata.Name || record.Application != p.Metadata.Application || record.Namespace != e.Site.Spec.Namespace || result.RunID != record.ID || result.SiteID != p.Snapshot.SiteID || result.PlanDigest != planDigest || result.BundleDigest != v.Digest || result.TargetID != p.Snapshot.TargetID || record.TargetID != p.Snapshot.TargetID || result.State != state || result.Acceptance != "not_established" || result.Error != "" || metadataDigest != resultMetadata || metadataDigest != releaseMetadata || reference.PlanDigest != "" && reference.PlanDigest != planDigest || reference.ResultDigest != "" && reference.ResultDigest != resultDigest {
 		return reference, p, result, spec.Err(11, "GitOps phase evidence differs from its exact Site, policy, target, recipe or result binding")
 	}
 	return spec.GitOpsRunReference{RunID: record.ID, PlanDigest: planDigest, ResultDigest: resultDigest}, p, result, nil
@@ -54,6 +65,25 @@ func (e *Engine) gitOpsStageReference(ctx context.Context, reference spec.GitOps
 	if err != nil || digest != p.SnapshotDigest {
 		return reference, spec.Err(11, "staged image target or private registry credential binding changed")
 	}
+	return e.gitOpsStagedImages(ctx, reference, p, result, v, full)
+}
+
+func (e *Engine) gitOpsHistoricalStage(ctx context.Context, reference spec.GitOpsRunReference, v *bundle.Verified, full bool) (spec.GitOpsRunReference, error) {
+	reference, p, result, err := e.gitOpsPhaseRecord(ctx, reference, "ArtifactsPlan", "artifacts_staged", v)
+	if err != nil {
+		return reference, err
+	}
+	if err := e.verifyArtifactsBinding(p, v); err != nil {
+		return reference, err
+	}
+	target, namespace, ok := e.gitOpsProfileTarget(ctx, e.Site)
+	if !ok || target != p.Snapshot.TargetID || namespace != p.Snapshot.NamespaceUID {
+		return reference, spec.Err(11, "historical image staging belongs to another target namespace")
+	}
+	return e.gitOpsStagedImages(ctx, reference, p, result, v, full)
+}
+
+func (e *Engine) gitOpsStagedImages(ctx context.Context, reference spec.GitOpsRunReference, p spec.Plan, result spec.RunResult, v *bundle.Verified, full bool) (spec.GitOpsRunReference, error) {
 	if len(result.Steps) != len(p.Operations) {
 		return reference, spec.Err(13, "staged image result lacks its complete recorded import scope")
 	}
@@ -102,6 +132,27 @@ func (e *Engine) gitOpsCoveredSteps(p spec.Plan, v *bundle.Verified) map[string]
 		return covered
 	}
 	application, _, _ := gitOpsSignedSeeds(v)
+	if gitOpsDataPhase(p) {
+		for _, op := range v.Index.Lock.Release.Spec.Operations {
+			if op.Type == "import" || op.Type == "gitops" && p.Kind != "GitOpsDataPlan" {
+				covered[op.ID] = true
+			}
+		}
+		if p.GitOps.Preparation != nil {
+			for _, seed := range application {
+				covered[seed.ID] = true
+			}
+		}
+		if p.Kind == "GitOpsDataChecksPlan" && !p.GitOps.Data.Initial {
+			cut, err := gitOpsDataSelection(v.Index.Lock.Release, p.SourceVersion)
+			if err == nil {
+				for _, op := range cut.before {
+					covered[op.ID] = true
+				}
+			}
+		}
+		return covered
+	}
 	for _, op := range v.Index.Lock.Release.Spec.Operations {
 		if op.Type == "import" || p.Kind == "GitOpsChecksPlan" && op.Type == "gitops" {
 			covered[op.ID] = true

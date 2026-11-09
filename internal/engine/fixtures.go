@@ -26,9 +26,9 @@ func reservedJobEnvironment(name string) bool {
 	return name == fixtureEnvironment || name == modelEnvironment || name == "CINDERLOCK_RUN_ID" || name == "CINDERLOCK_OPERATION_ID"
 }
 
-// seedVolumeBinding is durable native seed evidence, not an assertion that a storage
+// SeedVolumeBinding is durable native seed evidence, not an assertion that a storage
 // administrator cannot change bytes below the Kubernetes API.
-type seedVolumeBinding struct {
+type SeedVolumeBinding struct {
 	AssetID        string       `json:"assetID"`
 	AssetDigest    string       `json:"assetDigest"`
 	SeedID         string       `json:"seedID"`
@@ -122,7 +122,7 @@ func (e *Engine) fixtureFindings(ctx context.Context, p spec.Plan, v *bundle.Ver
 	if !needsFixtures {
 		return findings
 	}
-	if p.Kind == "GitOpsChecksPlan" {
+	if gitOpsApplicationChecks(p) {
 		if p.GitOps == nil {
 			block(spec.Err(10, "fixture exclusivity needs the reviewed GitOps inventory"))
 			return findings
@@ -230,7 +230,7 @@ func (e *Engine) fixtureRunPlan(ctx context.Context, runID string) (spec.Plan, e
 	return p, nil
 }
 
-func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spec.Plan, c spec.Check, v *bundle.Verified) ([]seedVolumeBinding, error) {
+func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spec.Plan, c spec.Check, v *bundle.Verified) ([]SeedVolumeBinding, error) {
 	if v == nil || p.BundleDigest != v.Digest {
 		return nil, spec.Err(13, "fixture bundle differs from the admitted plan")
 	}
@@ -238,7 +238,7 @@ func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spe
 	if err != nil {
 		return nil, err
 	}
-	bindings := make([]seedVolumeBinding, 0, len(seeds))
+	bindings := make([]SeedVolumeBinding, 0, len(seeds))
 	for _, seed := range seeds {
 		binding, err := e.resolveSeedVolumeBinding(ctx, runID, seed, v, true)
 		if err != nil {
@@ -252,8 +252,8 @@ func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spe
 	return bindings, nil
 }
 
-func (e *Engine) resolveSeedVolumeBinding(ctx context.Context, runID string, seed spec.Operation, v *bundle.Verified, requireComplete bool) (seedVolumeBinding, error) {
-	var binding seedVolumeBinding
+func (e *Engine) resolveSeedVolumeBinding(ctx context.Context, runID string, seed spec.Operation, v *bundle.Verified, requireComplete bool) (SeedVolumeBinding, error) {
+	var binding SeedVolumeBinding
 	asset, err := v.Asset(seed.Asset)
 	if err != nil || asset.Type == "image" {
 		return binding, spec.Err(13, "seed is not a locked file artifact")
@@ -286,18 +286,18 @@ func (e *Engine) resolveSeedVolumeBinding(ctx context.Context, runID string, see
 	if err != nil || cm.UID == "" || cm.Immutable == nil || !*cm.Immutable || len(cm.Data) != 1 || cm.Data["files.json"] != string(manifest) || len(cm.BinaryData) != 0 || cm.Annotations["cinderlock.dev/pvc-uid"] != string(pvc.UID) || cm.Labels["cinderlock.dev/run"] != runID || cm.Annotations["cinderlock.dev/asset-digest"] != asset.Digest {
 		return binding, spec.Err(13, "native manifest or original PVC identity differs from the signed seed")
 	}
-	binding = seedVolumeBinding{AssetID: seed.Asset, AssetDigest: asset.Digest, SeedID: seed.ID, SeedDigest: seedDigest, SeedAttempt: intent.Attempt, PVC: seed.PVC, PVCUID: string(pvc.UID), SubPath: seed.ModelSubPath, Manifest: cm.Name, ManifestUID: string(cm.UID), ManifestDigest: spec.Hash(manifest), Verifier: verifier}
+	binding = SeedVolumeBinding{AssetID: seed.Asset, AssetDigest: asset.Digest, SeedID: seed.ID, SeedDigest: seedDigest, SeedAttempt: intent.Attempt, PVC: seed.PVC, PVCUID: string(pvc.UID), SubPath: seed.ModelSubPath, Manifest: cm.Name, ManifestUID: string(cm.UID), ManifestDigest: spec.Hash(manifest), Verifier: verifier}
 	return binding, e.validateSeedVolumeBinding(ctx, runID, binding, requireComplete)
 }
 
-func (e *Engine) validateFixtureBinding(ctx context.Context, runID string, binding seedVolumeBinding) error {
+func (e *Engine) validateFixtureBinding(ctx context.Context, runID string, binding SeedVolumeBinding) error {
 	if err := e.validateSeedVolumeBinding(ctx, runID, binding, true); err != nil {
 		return err
 	}
 	return e.fixturePodExclusivity(ctx, runID, binding.PVC)
 }
 
-func (e *Engine) validateSeedVolumeBinding(ctx context.Context, runID string, binding seedVolumeBinding, requireComplete bool) error {
+func (e *Engine) validateSeedVolumeBinding(ctx context.Context, runID string, binding SeedVolumeBinding, requireComplete bool) error {
 	if binding.PVCUID == "" || binding.ManifestUID == "" || binding.SeedAttempt < 1 || !seedAssetID.MatchString(binding.AssetID) || !spec.ValidDigest(binding.AssetDigest) || !spec.ValidDigest(binding.ManifestDigest) || requireComplete && binding.Verifier.UID == "" || binding.Verifier.UID != "" && (binding.Verifier.RunID != runID || binding.Verifier.StepID != binding.SeedID || binding.Verifier.Attempt != binding.SeedAttempt || binding.Verifier.Role != "verify-model-"+binding.SeedID) {
 		return spec.Err(13, "native seed provenance is incomplete")
 	}
@@ -427,7 +427,7 @@ func (e *Engine) fixturePodExclusivity(ctx context.Context, runID, pvc string) e
 	return nil
 }
 
-func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec.Plan, c spec.Check, bindings []seedVolumeBinding, requireFresh bool) error {
+func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec.Plan, c spec.Check, bindings []SeedVolumeBinding, requireFresh bool) error {
 	seeds, err := fixtureSeeds(p, c)
 	if err != nil {
 		return err
@@ -461,7 +461,7 @@ func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec
 	return nil
 }
 
-func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.Check, bindings []seedVolumeBinding, v *bundle.Verified, beforeStart func() (spec.TargetSnapshot, error)) error {
+func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.Check, bindings []SeedVolumeBinding, v *bundle.Verified, beforeStart func() (spec.TargetSnapshot, error)) error {
 	image, err := e.image(v, e.Site.Spec.HelperImage)
 	if err != nil {
 		return err
@@ -491,7 +491,7 @@ func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.C
 }
 
 func (e *Engine) mountedFixtureBindings(ctx context.Context, job *batchv1.Job, runID string) error {
-	var bindings []seedVolumeBinding
+	var bindings []SeedVolumeBinding
 	found := false
 	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
 		if env.Name != fixtureEnvironment {
@@ -519,7 +519,7 @@ func (e *Engine) mountedFixtureBindings(ctx context.Context, job *batchv1.Job, r
 	return nil
 }
 
-func appendFixtureVolumes(container *corev1.Container, volumes *[]corev1.Volume, bindings []seedVolumeBinding) error {
+func appendFixtureVolumes(container *corev1.Container, volumes *[]corev1.Volume, bindings []SeedVolumeBinding) error {
 	if len(bindings) == 0 {
 		return nil
 	}
@@ -541,7 +541,7 @@ func appendFixtureVolumes(container *corev1.Container, volumes *[]corev1.Volume,
 	return nil
 }
 
-func fixtureIntentBindings(raw []byte) ([]seedVolumeBinding, error) {
+func fixtureIntentBindings(raw []byte) ([]SeedVolumeBinding, error) {
 	var intent checkIntent
 	if err := spec.Decode(raw, &intent); err != nil {
 		return nil, err

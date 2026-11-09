@@ -273,7 +273,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 	if err := e.verifyRecipeBinding(p, v); err != nil {
 		return err
 	}
-	if p.Kind == "Plan" || p.Kind == "RecoveryPlan" || p.Kind == "GitOpsChecksPlan" {
+	if p.Kind == "Plan" || p.Kind == "RecoveryPlan" || gitOpsApplicationChecks(p) || p.Kind == "GitOpsDataPlan" {
 		if err := licenseTimeError(v.Index.Lock.Release.Spec.License, time.Now()); err != nil {
 			return err
 		}
@@ -291,7 +291,11 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 		return spec.Err(12, "plan bundle digest differs from verified bundle")
 	}
 	embedded, err := snapshotDigest(p.Snapshot)
-	if err != nil || embedded != p.SnapshotDigest || p.SourceVersion != p.Snapshot.InstalledVersion {
+	startingVersion := p.SourceVersion
+	if p.Kind == "GitOpsDataChecksPlan" || p.Kind == "GitOpsDataRecoveryPlan" {
+		startingVersion = p.TargetVersion
+	}
+	if err != nil || embedded != p.SnapshotDigest || startingVersion != p.Snapshot.InstalledVersion {
 		return spec.Err(11, "plan starting state or source version differs from its bound snapshot")
 	}
 	currentSource, err := sourceSiteDigest(p.SitePath)
@@ -342,7 +346,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 	if err := e.checkPolicyFloor(ctx, p); err != nil {
 		return err
 	}
-	if p.Kind == "Plan" || p.Kind == "GitOpsChecksPlan" {
+	if p.Kind == "Plan" || gitOpsDataPhase(p) || gitOpsApplicationChecks(p) {
 		if finding := e.releaseFloorFinding(ctx, p); finding != nil {
 			return spec.Err(10, "%s: %s", finding.Code, finding.Message)
 		}
@@ -419,7 +423,7 @@ func (e *Engine) verifyRecipeBinding(p spec.Plan, v *bundle.Verified) error {
 	if p.Metadata.Application != r.Metadata.Application || p.Metadata.Channel != r.Metadata.Channel || p.Metadata.Sequence != r.Metadata.Sequence || p.SitePath == "" || p.BundlePath == "" {
 		return spec.Err(12, "plan identity is not bound to the signed release")
 	}
-	if p.Kind != "RecoveryPlan" && p.SourceRun != "" {
+	if p.Kind != "RecoveryPlan" && !gitOpsDataPhase(p) && p.SourceRun != "" {
 		return spec.Err(12, "only a separately validated recovery plan can supersede a prior run")
 	}
 	equal := func(a, b any) bool {

@@ -20,7 +20,7 @@ import (
 // gitOpsPreparedVolumeBinding is historical native provenance, not a fresh
 // content scan or authority to mutate an observed application resource.
 type gitOpsPreparedVolumeBinding struct {
-	seedVolumeBinding
+	SeedVolumeBinding
 	Preparation spec.GitOpsRunReference `json:"preparation"`
 	Receiver    state.ModelReceiver     `json:"receiver"`
 }
@@ -87,6 +87,18 @@ func (e *Engine) gitOpsPreparationRecord(ctx context.Context, ref spec.GitOpsRun
 	if err != nil {
 		return ref, p, result, err
 	}
+	return e.gitOpsPreparationScope(ctx, ref, p, result, v)
+}
+
+func (e *Engine) gitOpsHistoricalPreparation(ctx context.Context, ref spec.GitOpsRunReference, v *bundle.Verified) (spec.GitOpsRunReference, spec.Plan, spec.RunResult, error) {
+	ref, p, result, err := e.gitOpsPhaseRecord(ctx, ref, "GitOpsPreparePlan", "gitops_prepared", v)
+	if err != nil {
+		return ref, p, result, err
+	}
+	return e.gitOpsPreparationScope(ctx, ref, p, result, v)
+}
+
+func (e *Engine) gitOpsPreparationScope(ctx context.Context, ref spec.GitOpsRunReference, p spec.Plan, result spec.RunResult, v *bundle.Verified) (spec.GitOpsRunReference, spec.Plan, spec.RunResult, error) {
 	if err := e.verifyGitOpsPreparation(p, v); err != nil {
 		return ref, p, result, err
 	}
@@ -97,7 +109,7 @@ func (e *Engine) gitOpsPreparationRecord(ctx context.Context, ref spec.GitOpsRun
 	return ref, p, result, nil
 }
 
-func (e *Engine) gitOpsSeedReceipt(ctx context.Context, runID string, binding seedVolumeBinding, reported *spec.StepResult) error {
+func (e *Engine) gitOpsSeedReceipt(ctx context.Context, runID string, binding SeedVolumeBinding, reported *spec.StepResult) error {
 	intent, err := e.Store.LatestOperation(ctx, runID, binding.SeedID)
 	var step spec.StepResult
 	worker, workerErr := e.operationWorker(ctx, runID, binding.SeedID, binding.SeedAttempt, binding.SeedID)
@@ -123,6 +135,16 @@ func (e *Engine) gitOpsActivePlanRun(ctx context.Context, p spec.Plan, target st
 	}
 	if err != nil {
 		return state.Run{}, err
+	}
+	if gitOpsDataPhase(p) && p.GitOps != nil && p.GitOps.Data != nil && p.GitOps.Data.Predecessor != nil && p.SourceRun == run.ID {
+		ref := p.GitOps.Data.Predecessor
+		var result spec.RunResult
+		resultErr := spec.Decode(run.Result, &result)
+		resultDigest, digestErr := spec.Digest(result)
+		if resultErr != nil || digestErr != nil || ref.PlanDigest != run.PlanDigest || ref.ResultDigest != resultDigest {
+			return state.Run{}, spec.Err(13, "active data predecessor differs from its exact saved reference")
+		}
+		return state.Run{}, nil
 	}
 	digest, err := spec.Digest(p)
 	if err != nil {

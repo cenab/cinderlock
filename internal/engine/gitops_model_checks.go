@@ -27,7 +27,7 @@ func gitOpsModelStep(phase, asset string) string { return "@gitops-model/" + pha
 
 func (e *Engine) gitOpsModelIntent(ctx context.Context, p spec.Plan, v *bundle.Verified, phase, asset string) (gitOpsModelIntent, spec.Operation, error) {
 	var intent gitOpsModelIntent
-	if p.Kind != "GitOpsChecksPlan" || p.GitOps == nil || p.GitOps.Preparation == nil || phase != "start" && phase != "finish" {
+	if !gitOpsApplicationChecks(p) || p.GitOps == nil || p.GitOps.Preparation == nil || phase != "start" && phase != "finish" {
 		return intent, spec.Operation{}, spec.Err(13, "model verification is outside the exact GitOps check phase")
 	}
 	application, _, err := gitOpsSignedSeeds(v)

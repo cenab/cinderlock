@@ -436,3 +436,66 @@ how to recover this split between local storage and Kubernetes. Reusing the
 existing transaction and journal format avoids another workflow database or
 new admission protocol. This does not reconstruct lost predecessor history or
 fence application writes outside Cinderlock.
+
+### Keep the data gate while the customer adopts source
+
+**Verdict:** sound · **Confidence:** medium. **When:** mutable GitOps procedures.
+
+After the vendor's signed procedures stop writes and prepare the database,
+the customer may take hours to approve and adopt the new source. Cinderlock
+records `awaiting_adoption` and retains the active application gate, while
+releasing only the request Lease. A later plan receives that gate only from
+the exact completed predecessor and runs under new approval. The plan left
+the waiting boundary unspecified. Treating preparation as ordinary successful
+completion would allow an unrelated mutation while the database is prepared
+for another release. Initial installation is explicit and cannot bypass a
+previously accepted application. The first profile requires a healthy
+controller through application-level quiescence; it does not scale or patch
+the customer's Deployment to imitate a storage fence.
+
+### Keep historical facts independent of current authority
+
+**Verdict:** sound · **Confidence:** medium. **When:** mutable GitOps history.
+
+An operator rotates credentials after preparing a model or image. The original
+copy still happened; the old credentials do not authorize another action.
+Completed records retain exact bundle, target, worker, volume, Plan, and result
+identities. Every new phase independently satisfies current policy, selected
+Secrets, source observation, and approval. The old accepted manifest remains
+separate from the future bundle's render. The plan did not define how history
+survives rotation. Reusing the old policy as authority would be unsafe; forcing
+all historical policy bytes to stay current would make normal rotation break
+upgrade preparation. Historical model identity is stored as typed metadata
+beside its digest, without Secret values, so old read-only consumers remain
+verifiable even when a later release removes that model.
+
+### Start with explicit procedures and same-source data restore
+
+**Verdict:** sound · **Confidence:** medium. **When:** mutable GitOps recovery.
+
+A release declares which signed Jobs quiesce, back up, and resume its mutable
+claim. Dependencies determine which procedures run before or after the
+customer's source change; names and script prose do not. If required checks
+then fail, a separately approved recovery restores data at that same adopted
+source and runs its own required workflows. The original failed result stays
+failed, while the recovered result may become the next operational baseline.
+The plan left the initial data adapter's recovery breadth open. This keeps
+cross-source recovery and failures before adoption in explicit reconciliation
+scope instead of guessing a safe source/storage ordering. The first adapter
+supports one external ReadWriteOnce filesystem claim and bounded native
+consumer inventory. Scripts own actual database and backup semantics; neither
+Job completion nor claim identity certifies a production restore backend.
+
+### Share Pod recipe normalization without changing worker identity
+
+**Verdict:** sound · **Confidence:** high. **When:** data consumer review.
+
+A Kubernetes scheduler adds a node assignment and standard defaults to an
+application Pod. Those changes must not disguise altered commands, images,
+mounts, or security settings. Application consumer validation and fixed workers
+reuse the existing Pod default/scheduling normalization, with their respective
+ownership checks and recipe digests. The plan did not specify the comparison
+mechanism. Passing a Pod body to a whole-resource comparison would crash or
+misinterpret resource fields; another independent list of ignored defaults
+would drift. The fixed worker's digest envelope and normalization remain
+unchanged, preserving the existing helper protocol.

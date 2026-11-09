@@ -17,7 +17,11 @@ func (o *options) gitOpsPhasePaths(p spec.Plan, site spec.Site, outputs ...strin
 	if p.GitOps.Contract != nil {
 		repository = p.GitOps.Contract.Repository
 	}
-	for _, selected := range append([]string{o.state, o.cache, site.Spec.StateDir, os.TempDir()}, outputs...) {
+	selectedPaths := append([]string{o.state, o.cache, site.Spec.StateDir, os.TempDir()}, outputs...)
+	if p.GitOps.Data != nil && p.GitOps.Data.PreviousManifestPath != "" {
+		selectedPaths = append(selectedPaths, p.GitOps.Data.PreviousManifestPath)
+	}
+	for _, selected := range selectedPaths {
 		if _, err := engine.GitOpsPreparationPath(repository, selected); err != nil {
 			return err
 		}
@@ -111,7 +115,7 @@ func addGitOpsExecution(g *cobra.Command, o *options) {
 }
 
 func (o *options) validateGitOpsApproval(c *cobra.Command, p spec.Plan, site spec.Site, policy spec.TrustPolicy, output string) error {
-	if p.Kind != "GitOpsPreparePlan" && p.Kind != "GitOpsChecksPlan" {
+	if p.GitOps == nil {
 		return nil
 	}
 	if err := o.gitOpsPhasePaths(p, site, output); err != nil {

@@ -32,7 +32,7 @@ func (e *Engine) gitOpsPreparedTemplates(ctx context.Context, binding gitOpsPrep
 			if _, err := e.inspectWorker(ctx, *original); err != nil {
 				return err
 			}
-			if _, err := gitOpsClaimMounts(item.Pod, binding.PVC, ""); err == nil {
+			if _, err := gitOpsClaimMounts(item.Pod, binding.PVC, "", true); err == nil {
 				continue
 			}
 			if original.RunID != binding.Preparation.RunID {
@@ -66,11 +66,11 @@ func (e *Engine) gitOpsPreparedTemplates(ctx context.Context, binding gitOpsPrep
 				return spec.Err(11, "prepared model controller differs from its observed UID")
 			}
 		}
-		expected, err := gitOpsClaimMounts(wanted.Spec.Template.Spec, binding.PVC, binding.SubPath)
+		expected, err := gitOpsClaimMounts(wanted.Spec.Template.Spec, binding.PVC, binding.SubPath, true)
 		if err != nil {
 			return err
 		}
-		actual, err := gitOpsClaimMounts(item.Pod, binding.PVC, binding.SubPath)
+		actual, err := gitOpsClaimMounts(item.Pod, binding.PVC, binding.SubPath, true)
 		a, aErr := spec.Digest(expected)
 		b, bErr := spec.Digest(actual)
 		if err != nil || aErr != nil || bErr != nil || a != b {

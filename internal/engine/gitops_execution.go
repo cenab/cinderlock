@@ -11,7 +11,7 @@ import (
 )
 
 func gitOpsPhase(p spec.Plan) bool {
-	return p.Kind == "GitOpsPreparePlan" || p.Kind == "GitOpsChecksPlan"
+	return p.Kind == "GitOpsPreparePlan" || p.Kind == "GitOpsChecksPlan" || gitOpsDataPhase(p)
 }
 
 // GitOpsPreparePlan prepares only fresh native application revision volumes.
@@ -35,6 +35,9 @@ func (e *Engine) gitOpsPhasePlan(ctx context.Context, kind string, v *bundle.Ver
 	}
 	r := v.Index.Lock.Release
 	declared := r.Spec.Deployment.GitOps
+	if kind == "GitOpsChecksPlan" && declared != nil && declared.Data != nil {
+		return p, spec.Err(10, "mutable application data requires its separately authorized data phase")
+	}
 	if r.Spec.Deployment.Type != "gitops" || declared == nil || declared.Owner != "argocd" || !spec.ValidGitOpsCommit(declared.Revision) || !gitOpsTargetPath(declared.Path) || e.Site.Spec.Profile != r.Spec.Profile {
 		return p, spec.Err(10, "GitOps execution requires the bounded signed Argo directory profile")
 	}
@@ -161,19 +164,23 @@ func gitOpsSignedSeeds(v *bundle.Verified) (application, fixtures []spec.Operati
 			} else {
 				application = append(application, op)
 			}
+		case "job", "backup", "migrate", "reindex":
+			if r.Spec.Deployment.GitOps == nil || r.Spec.Deployment.GitOps.Data == nil {
+				return nil, nil, spec.Err(10, "authored GitOps data effects need an explicit signed data contract")
+			}
 		default:
 			return nil, nil, spec.Err(10, "GitOps application/data procedure is not implemented by this native preparation/check profile")
 		}
 	}
-	application, err = gitOpsSeedOrder(application)
+	application, err = gitOpsOperationOrder(application)
 	if err != nil {
 		return nil, nil, err
 	}
-	fixtures, err = gitOpsSeedOrder(fixtures)
+	fixtures, err = gitOpsOperationOrder(fixtures)
 	return application, fixtures, err
 }
 
-func gitOpsSeedOrder(seeds []spec.Operation) ([]spec.Operation, error) {
+func gitOpsOperationOrder(seeds []spec.Operation) ([]spec.Operation, error) {
 	selected := map[string]spec.Operation{}
 	for _, seed := range seeds {
 		selected[seed.ID] = seed
@@ -209,9 +216,15 @@ func gitOpsSeedOrder(seeds []spec.Operation) ([]spec.Operation, error) {
 }
 
 func (e *Engine) verifyGitOpsBinding(p spec.Plan, v *bundle.Verified) error {
+	if gitOpsDataPhase(p) {
+		return e.verifyGitOpsDataBinding(p, v)
+	}
 	r := v.Index.Lock.Release
 	b := p.GitOps
-	if !gitOpsPhase(p) || b == nil || !filepath.IsAbs(b.ManifestPath) || !spec.ValidDigest(p.DesiredStateDigest) || !validGitOpsRunReference(b.Staging) || p.TargetVersion != r.Metadata.Version || p.Metadata.Version != r.Metadata.Version || p.SourceVersion != "" || p.Destructive || p.SourceRun != "" || p.ConfigurationReview != nil || len(p.RetainedResources) != 0 || r.Spec.Deployment.Type != "gitops" || r.Spec.Deployment.GitOps == nil || r.Spec.Deployment.GitOps.Owner != "argocd" {
+	if p.Kind == "GitOpsChecksPlan" && r.Spec.Deployment.GitOps != nil && r.Spec.Deployment.GitOps.Data != nil {
+		return spec.Err(12, "mutable data cannot bypass its separate authorized phase")
+	}
+	if !gitOpsPhase(p) || b == nil || b.Data != nil || !filepath.IsAbs(b.ManifestPath) || !spec.ValidDigest(p.DesiredStateDigest) || !validGitOpsRunReference(b.Staging) || p.TargetVersion != r.Metadata.Version || p.Metadata.Version != r.Metadata.Version || p.SourceVersion != "" || p.Destructive || p.SourceRun != "" || p.ConfigurationReview != nil || len(p.RetainedResources) != 0 || r.Spec.Deployment.Type != "gitops" || r.Spec.Deployment.GitOps == nil || r.Spec.Deployment.GitOps.Owner != "argocd" {
 		return spec.Err(12, "GitOps phase differs from its fixed signed source and execution scope")
 	}
 	app, fixtures, err := gitOpsSignedSeeds(v)

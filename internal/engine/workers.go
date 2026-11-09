@@ -17,10 +17,18 @@ func jobRecipe(job *batchv1.Job) (string, error) {
 	if job.Spec.Parallelism != nil && *job.Spec.Parallelism != 1 || job.Spec.Completions != nil && *job.Spec.Completions != 1 || job.Spec.Suspend != nil && *job.Spec.Suspend || job.Spec.PodFailurePolicy != nil || job.Spec.SuccessPolicy != nil {
 		return "", errors.New("Job concurrency or completion policy differs from fixed worker")
 	}
-	pod := job.Spec.Template.Spec.DeepCopy()
-	if len(pod.Containers) != 1 || len(pod.InitContainers) != 0 || len(pod.EphemeralContainers) != 0 {
+	if len(job.Spec.Template.Spec.Containers) != 1 || len(job.Spec.Template.Spec.InitContainers) != 0 || len(job.Spec.Template.Spec.EphemeralContainers) != 0 {
 		return "", errors.New("Job container scope differs from fixed worker")
 	}
+	return spec.Digest(struct {
+		Pod      *corev1.PodSpec `json:"pod"`
+		Backoff  *int32          `json:"backoff"`
+		Deadline *int64          `json:"deadline"`
+	}{podRecipeSpec(job.Spec.Template.Spec), job.Spec.BackoffLimit, job.Spec.ActiveDeadlineSeconds})
+}
+
+func podRecipeSpec(value corev1.PodSpec) *corev1.PodSpec {
+	pod := value.DeepCopy()
 	if pod.ServiceAccountName == "default" {
 		pod.ServiceAccountName = ""
 	}
@@ -59,11 +67,7 @@ func jobRecipe(job *batchv1.Job) (string, error) {
 			source.DefaultMode = nil
 		}
 	}
-	return spec.Digest(struct {
-		Pod      *corev1.PodSpec `json:"pod"`
-		Backoff  *int32          `json:"backoff"`
-		Deadline *int64          `json:"deadline"`
-	}{pod, job.Spec.BackoffLimit, job.Spec.ActiveDeadlineSeconds})
+	return pod
 }
 
 // workerJob binds only the original Job. Consumer inventories use this seam to
@@ -91,17 +95,28 @@ func (e *Engine) inspectWorker(ctx context.Context, worker state.Worker) (string
 	if err := e.inspectModelJobProvenance(ctx, job); err != nil {
 		return "unknown", err
 	}
-	for _, condition := range job.Status.Conditions {
-		if condition.Status == corev1.ConditionTrue {
-			if condition.Type == batchv1.JobComplete {
-				return "complete", nil
-			}
-			if condition.Type == batchv1.JobFailed {
-				return "failed", nil
-			}
-		}
+	return workerStatus(job), nil
+}
+
+func workerStatus(job *batchv1.Job) string {
+	if job.DeletionTimestamp != nil {
+		return "unknown"
 	}
-	return "running", nil
+	status := "running"
+	for _, condition := range job.Status.Conditions {
+		if condition.Status != corev1.ConditionTrue || condition.Type != batchv1.JobComplete && condition.Type != batchv1.JobFailed {
+			continue
+		}
+		current := "complete"
+		if condition.Type == batchv1.JobFailed {
+			current = "failed"
+		}
+		if status != "running" && status != current {
+			return "unknown"
+		}
+		status = current
+	}
+	return status
 }
 
 func (e *Engine) operationWorker(ctx context.Context, runID, stepID string, attempt int, role string) (state.Worker, error) {
@@ -118,25 +133,30 @@ func workerPodRecipe(job *batchv1.Job, pod *corev1.Pod, w state.Worker) (string,
 		return "", spec.Err(13, "Pod is not the original controlled worker")
 	}
 	actual := job.DeepCopy()
-	actual.Spec.Template.Spec = *pod.Spec.DeepCopy()
-	if job.Spec.Template.Spec.NodeName == "" {
-		actual.Spec.Template.Spec.NodeName = ""
+	actual.Spec.Template.Spec = *controlledPodSpec(job.Spec.Template.Spec, pod.Spec)
+	digest, err := jobRecipe(actual)
+	if err != nil || digest != w.RecipeDigest {
+		return "", spec.Err(13, "Pod differs from its admitted Job recipe")
+	}
+	return digest, nil
+}
+
+func controlledPodSpec(template, value corev1.PodSpec) *corev1.PodSpec {
+	actual := value.DeepCopy()
+	if template.NodeName == "" {
+		actual.NodeName = ""
 	}
 	tolerations := []corev1.Toleration{}
-	for _, value := range actual.Spec.Template.Spec.Tolerations {
+	for _, value := range actual.Tolerations {
 		if (value.Key == "node.kubernetes.io/not-ready" || value.Key == "node.kubernetes.io/unreachable") && value.Operator == corev1.TolerationOpExists && value.Effect == corev1.TaintEffectNoExecute && value.Value == "" && value.TolerationSeconds != nil && *value.TolerationSeconds == 300 {
 			continue
 		}
 		tolerations = append(tolerations, value)
 	}
 	if len(tolerations) == 0 {
-		actual.Spec.Template.Spec.Tolerations = nil
+		actual.Tolerations = nil
 	} else {
-		actual.Spec.Template.Spec.Tolerations = tolerations
+		actual.Tolerations = tolerations
 	}
-	digest, err := jobRecipe(actual)
-	if err != nil || digest != w.RecipeDigest {
-		return "", spec.Err(13, "Pod differs from its admitted Job recipe")
-	}
-	return digest, nil
+	return actual
 }

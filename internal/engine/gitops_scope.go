@@ -13,6 +13,9 @@ import (
 )
 
 func (e *Engine) inspectGitOpsPlan(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy) (spec.TargetSnapshot, error) {
+	if gitOpsDataPhase(p) {
+		return e.inspectGitOpsData(ctx, p, v, policy)
+	}
 	if p.Kind == "GitOpsPreparePlan" {
 		return e.inspectGitOpsPreparation(ctx, p, v, policy)
 	}
@@ -35,7 +38,7 @@ func (e *Engine) inspectGitOpsPlan(ctx context.Context, p spec.Plan, v *bundle.V
 	if err != nil {
 		return snapshot, err
 	}
-	fingerprint, resources, err := gitOpsObservationBindings(p, v, observation)
+	fingerprint, resources, err := gitOpsObservationBindings(p, v.Digest, observation)
 	if err != nil {
 		return snapshot, err
 	}
@@ -66,7 +69,7 @@ func (e *Engine) inspectGitOpsPlan(ctx context.Context, p spec.Plan, v *bundle.V
 	if err != nil || !final.Ready {
 		return snapshot, spec.Err(10, "GitOps source/controller readiness or original freshness changed during dependency observation")
 	}
-	finalFingerprint, finalResources, err := gitOpsObservationBindings(p, v, final)
+	finalFingerprint, finalResources, err := gitOpsObservationBindings(p, v.Digest, final)
 	initialResources, digestErr := spec.Digest(resources)
 	currentResources, currentErr := spec.Digest(finalResources)
 	if err != nil || digestErr != nil || currentErr != nil || fingerprint != finalFingerprint || initialResources != currentResources || observation.TargetID != final.TargetID || observation.NamespaceUID != final.NamespaceUID {
@@ -75,11 +78,11 @@ func (e *Engine) inspectGitOpsPlan(ctx context.Context, p spec.Plan, v *bundle.V
 	return gitOpsSortedSnapshot(snapshot), nil
 }
 
-func gitOpsObservationBindings(p spec.Plan, v *bundle.Verified, observation GitOpsProfileObservation) (string, []spec.ResourceFact, error) {
+func gitOpsObservationBindings(p spec.Plan, bundleDigest string, observation GitOpsProfileObservation) (string, []spec.ResourceFact, error) {
 	scope := struct {
 		Contract                                         spec.GitOpsProfileContract
 		SourceBlob, SourcePath, Manifest, Bundle, AppUID string
-	}{*p.GitOps.Contract, observation.SourceBlob, observation.SourcePath, p.DesiredStateDigest, v.Digest, observation.UID}
+	}{*p.GitOps.Contract, observation.SourceBlob, observation.SourcePath, p.DesiredStateDigest, bundleDigest, observation.UID}
 	fingerprint, err := spec.Digest(scope)
 	if err != nil {
 		return "", nil, err
@@ -137,7 +140,7 @@ func (e *Engine) gitOpsSelectedSecretFacts(ctx context.Context, p spec.Plan, v *
 			selected[id] = true
 		}
 	}
-	if p.Kind == "GitOpsChecksPlan" && v.Index.Lock.Release.Spec.License != nil {
+	if (gitOpsApplicationChecks(p) || p.Kind == "GitOpsDataPlan") && v.Index.Lock.Release.Spec.License != nil {
 		selected[v.Index.Lock.Release.Spec.License.SecretRef] = true
 	}
 	if len(selected) > 64 || len(e.Site.Spec.ImagePullSecrets) > 64 {
@@ -265,6 +268,9 @@ func (e *Engine) gitOpsWorkloadDependencies(ctx context.Context, p spec.Plan, v 
 		for _, volume := range pod.Volumes {
 			switch {
 			case volume.PersistentVolumeClaim != nil:
+				if p.GitOps != nil && p.GitOps.Data != nil && volume.PersistentVolumeClaim.ClaimName == p.GitOps.Data.PVC {
+					continue
+				}
 				binding, err := e.gitOpsPreparedVolume(ctx, p, v, volume.PersistentVolumeClaim.ClaimName)
 				if err != nil {
 					return nil, err
@@ -288,6 +294,13 @@ func (e *Engine) gitOpsWorkloadDependencies(ctx context.Context, p spec.Plan, v 
 					return nil, err
 				}
 				facts = append(facts, spec.Fact{Name: "gitops/prepared-volume/" + volume.PersistentVolumeClaim.ClaimName, Value: fingerprint, Status: "known", Source: "original completed native preparation, exact PVC/manifest/verifier and read-only application mapping"})
+				if gitOpsDataPhase(p) {
+					body, err := spec.Canonical(binding)
+					if err != nil {
+						return nil, err
+					}
+					facts = append(facts, spec.Fact{Name: "gitops/prepared-evidence/" + binding.PVC, Value: string(body), Status: "known", Source: "original native model identities retained for later read-only historical observation"})
+				}
 			case volume.ConfigMap != nil:
 				if err := config(volume.ConfigMap.Name); err != nil {
 					return nil, err
