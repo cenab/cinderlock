@@ -59,11 +59,19 @@ type RunComparison struct {
 	Notice           string         `json:"notice"`
 }
 
+func applicationPlanKind(kind string) bool {
+	switch kind {
+	case "Plan", "RecoveryPlan", "GitOpsChecksPlan", "GitOpsDataPlan", "GitOpsDataChecksPlan", "GitOpsDataRecoveryPlan":
+		return true
+	}
+	return false
+}
+
 // SubjectForObservation derives an evidence subject only after the stored run,
 // exact plan, effective check contract, and site have been bound together.
 func SubjectForObservation(o Observation) (EvidenceSubject, error) {
 	var out EvidenceSubject
-	if o.Plan.Kind != "Plan" && o.Plan.Kind != "RecoveryPlan" {
+	if !applicationPlanKind(o.Plan.Kind) {
 		return out, errors.New("unsupported recorded plan kind")
 	}
 	for _, header := range []struct {
@@ -84,6 +92,9 @@ func SubjectForObservation(o Observation) (EvidenceSubject, error) {
 	}
 	if !spec.ValidDigest(o.Run.BundleDigest) || o.Run.PlanDigest != planDigest || o.Run.BundleDigest != o.Plan.BundleDigest || o.Plan.SiteDigest != siteDigest {
 		return out, errors.New("run, plan, bundle, and site identities do not match")
+	}
+	if o.Run.SourceRun != o.Plan.SourceRun {
+		return out, errors.New("run and plan refer to different predecessor runs")
 	}
 	if o.Run.RunID == "" || o.Run.SiteID == "" || o.Run.TargetID == "" || o.Run.TargetID != o.Plan.Snapshot.TargetID || o.Run.SiteID != o.Site.Metadata.Name || o.Run.SiteID != o.Plan.Snapshot.SiteID || o.Run.Metadata.Application == "" || o.Run.Metadata.Application != o.Plan.Metadata.Application || o.Run.Metadata.Version == "" || o.Run.Metadata.Version != o.Plan.Metadata.Version || o.Site.Spec.Profile == "" {
 		return out, errors.New("run subject, application, version, target, or profile is unbound")

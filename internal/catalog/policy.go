@@ -123,7 +123,7 @@ func (s *Store) policyPlan(ctx context.Context, project, site, digest string) (s
 	if err = strictJSON(record.Record.Body, &plan); err != nil {
 		return plan, target, err
 	}
-	if plan.Kind != "Plan" && plan.Kind != "RecoveryPlan" {
+	if !applicationPlanKind(plan.Kind) {
 		return plan, target, errors.New("unsupported policy evaluation plan kind")
 	}
 	if err = spec.ValidateHeader(plan.Header, plan.Kind); err != nil {
@@ -142,7 +142,9 @@ func (s *Store) policyPlan(ctx context.Context, project, site, digest string) (s
 	if target.Metadata.Name != site || plan.Snapshot.SiteID != site || plan.Snapshot.TargetID == "" || !identifier.MatchString(target.Spec.Profile) || plan.Metadata.Application == "" || plan.Metadata.Version == "" || !spec.ValidDigest(plan.BundleDigest) {
 		return plan, target, errors.New("policy evaluation plan and site scope is unbound")
 	}
-	if len(plan.Checks) == 0 || len(plan.Checks) > 128 || len(plan.Operations) == 0 || len(plan.Operations) > 128 {
+	// Adopted-source checks can have no authored operations beyond their checks.
+	missingOperations := len(plan.Operations) == 0 && plan.Kind != "GitOpsChecksPlan" && plan.Kind != "GitOpsDataChecksPlan"
+	if len(plan.Checks) == 0 || len(plan.Checks) > 128 || missingOperations || len(plan.Operations) > 128 {
 		return plan, target, errors.New("policy evaluation requires bounded declared checks and operations")
 	}
 	checks := map[string]bool{}

@@ -259,7 +259,11 @@ func TestPolicyPackEvaluatesExactRequiredCheckContract(t *testing.T) {
 	}{
 		{name: "required-by-id", withRun: true},
 		{name: "required-by-flag", withRun: true, change: func(o *Observation) { o.Plan.RequiredChecks = nil; o.Plan.Checks[0].Required = true }},
-		{name: "bound-recovery-plan", withRun: true, change: func(o *Observation) { o.Plan.Kind = "RecoveryPlan"; o.Plan.SourceRun = "failed-upgrade" }},
+		{name: "bound-recovery-plan", withRun: true, change: func(o *Observation) {
+			o.Plan.Kind = "RecoveryPlan"
+			o.Plan.SourceRun = "failed-upgrade"
+			o.Run.SourceRun = o.Plan.SourceRun
+		}},
 		{name: "unknown-profile", pack: func(p *PolicyPack) { p.Profiles = []string{"other-profile"} }, finding: "profile_not_permitted"},
 		{name: "missing-required-check", pack: func(p *PolicyPack) { p.RequiredChecks = []string{"not-declared"} }, finding: "required_check_missing:not-declared"},
 		{name: "optional-check", change: func(o *Observation) { o.Plan.RequiredChecks = nil; o.Run.Checks[0].Required = false }, finding: "required_check_missing:query"},

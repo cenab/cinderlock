@@ -110,6 +110,18 @@ the plan's operation list; the engine separately enforces permissions for check
 execution. Unsupported plan kinds, malformed contracts, mismatched run/plan/site
 identities, missing linked objects, and altered stored bytes fail closed.
 
+Recorded GitOps application checks and data phases use the same binding and
+policy rules. An adopted-source check plan can legitimately have no authored
+operations; its declared checks and the pack's required workflows still apply.
+Recovery and phase-successor results must name the same predecessor as their
+plans. A change of plan kind or check scope remains visible in comparisons and
+does not combine acceptance across phases. Preparation without a declared check
+contract has no application-comparison subject.
+
+You can queue a local notification for `awaiting_adoption`. It retains
+`not_established` acceptance and sends no message. Recognizing this state in the
+catalog does not release the engine's active data gate.
+
 If a pack applies, `/api/v1/approvals` requires the current evaluation's
 `catalogPolicyDigest` alongside its existing exact-plan decision fields. Changed
 configuration requires a fresh review. Pack expiry and restrictions are checked

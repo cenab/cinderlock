@@ -11,18 +11,17 @@ whole feature set. It does not establish a customer pilot or hardware support.
 Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
 using the normal intent, worker, coordination, approval and recovery owners:
 
-1. Qualify the fresh q011 persistent workflow from q007's retained inputs using the
-   frozen `cac2e73` CLI. The [data contracts](mutable-gitops.md) implement
-   separate pre-adoption, post-adoption and same-source recovery plans through
-   normal authorization, workers, acceptance and exact active-gate transfer.
-   Their unit/race/vet gates pass. The fresh fixture explicitly opts into
-   maintenance readiness and uses a narrowly authorized Pod replacement for
-   actual restart/persistence checks. Its new image still needs live evidence.
-   Preserve q010: staging completed, but preparation planning rejected a stale
-   Helm-only timeout in its source marker before starting a model worker. The
-   fixture now constructs an inert marker instead of retaining writer fields.
-2. Finish combined release gates, feature documentation and publication. Keep
-   failed upgrade acceptance separate from successful recovery.
+1. Finish q011's live persistent workflow using the frozen `cac2e73` CLI.
+   Installation passed its required workflows. V2 quiesce/backup/migration
+   completed with an active `awaiting_adoption` gate; the original Application
+   adopted C2 and post-adoption acceptance is running. Continue through v3's
+   real document deletion and separately authorized restore, preserving the
+   failed result and all original workers. The fixture explicitly opts into
+   maintenance readiness and uses a narrowly authorized Pod replacement.
+2. Finish catalog integration through its public CLI/API, then combined release
+   gates, feature documentation and publication. Recorded GitOps kinds,
+   check-only policy evaluation, predecessor agreement and waiting notices
+   have regression tests; catalog review never grants engine authority.
 
 | Source | Completed evidence and boundary | Private records |
 | --- | --- | --- |
@@ -33,7 +32,7 @@ using the normal intent, worker, coordination, approval and recovery owners:
 | Published `edee42d` | Hosted run 42468205931 passed its Go job, install, upgrade and expected data-loss failure. The overall 30-minute Kubernetes budget cancelled before recovery proof; the next run uses 45 minutes with unchanged CLI/worker deadlines and assertions. | `.local/hosted-ci-42468205931/` |
 | Published `3dcbb3f` | Replacement hosted run 42471082512 passed build/security/distribution and all four CPU outcomes, including separate recovery and retained original failure. | `.local/hosted-ci-42471082512/` |
 | `c444900` | Authorized native preparation/check contracts pass unit/race/CLI and the live CPU model/stateless workflow, including five required checks and original worker identity readback. | `.local/argocd-workflow/q009/`, `.local/gitops-qualified-c444900/` |
-| `cac2e73` | Data phases pass full local unit/race/vet and consumer/approval/handoff regressions. Hosted Go job passed; its Kubernetes job remains in progress. Live mutable data remains unqualified. | `.local/gitops-qualified-cac2e73/`; GitHub run `42597359117` |
+| `cac2e73` | Data phases pass local unit/race/vet and consumer/approval/handoff regressions. Hosted Go and native Kubernetes jobs passed; downloaded receipts verify install/upgrade/intended failure/separate recovery. The live GitOps data workflow remains in progress. | `.local/gitops-qualified-cac2e73/`, `.local/hosted-ci-42597359117/`, `.local/argocd-workflow/q011/` |
 
 The [qualification record](../../docs/qualification.md) owns detailed limits.
 Prerequisite duplication was removed while retaining actual-start, post-wait
@@ -47,6 +46,11 @@ separate q009 model/stateless workflow passed with a
 frozen `c444900` CLI and the protocol-compatible `8db0077` helper; original q006,
 q008 and native005 evidence stays unchanged. The user will supply NVIDIA
 hardware later; keep that qualification open.
+
+Preserve q010's rejected model-preparation plan: its fixture retained a
+Helm-only timeout on a source marker and started no model worker. Q011 uses
+the corrected inert marker and retains its first conditional Argo sync
+rejection followed by an explicit fresh request with the same original UID.
 
 Use explicit kubeconfig/context paths on every Kubernetes/Helm invocation.
 Never use the workstation's default production context. Temporary credentials,

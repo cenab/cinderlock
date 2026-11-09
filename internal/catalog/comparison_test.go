@@ -174,6 +174,7 @@ func TestComparisonAcceptsBoundRecoveryHistory(t *testing.T) {
 	}
 	o.Plan.Kind = "RecoveryPlan"
 	o.Plan.SourceRun = "failed-upgrade"
+	o.Run.SourceRun = o.Plan.SourceRun
 	o.Run.State = "recovered"
 	o.Run.PlanDigest, err = spec.Digest(o.Plan)
 	if err != nil {
@@ -185,6 +186,7 @@ func TestComparisonAcceptsBoundRecoveryHistory(t *testing.T) {
 	ordinary := o
 	ordinary.Plan.Kind = "Plan"
 	ordinary.Plan.SourceRun = ""
+	ordinary.Run.SourceRun = ""
 	ordinary.Run.PlanDigest, err = spec.Digest(ordinary.Plan)
 	if err != nil {
 		t.Fatal(err)

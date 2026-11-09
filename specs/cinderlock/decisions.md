@@ -526,3 +526,20 @@ operator prerequisites, not authority granted by the bundle. V1/v2 retain
 restart-based repair with an explicit write barrier, read-only integrity check,
 and resume procedure. They do not restore missing data. The live failure/recovery
 rehearsal selects v3's actual backup restoration.
+
+### Carry GitOps phases through recorded catalog policy and comparisons
+
+**Verdict:** sound · **Confidence:** high. **When:** catalog integration.
+
+A customer records a GitOps application-check or data-recovery result and
+expects the catalog to compare it and apply the same organizational rules as
+an ordinary deployment. The catalog recognizes these application plan kinds
+through one shared classifier. A checks-only phase can have no authored
+operations, but its declared checks, identity bindings, and required-workflow
+rules remain mandatory. Artifact-only preparation remains outside application
+comparisons when it has no check contract. The plan did not specify the
+catalog's phase handling. Rejecting every new kind would leave the CLI and
+catalog disconnected; treating a phase as ordinary deployment would hide its
+coverage and predecessor context. Recorded run and plan predecessor fields
+must agree. A waiting-state local notice preserves unestablished acceptance
+and never releases the active engine gate or sends a message.
