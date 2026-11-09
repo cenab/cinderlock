@@ -25,8 +25,13 @@ func (e *Engine) Apply(ctx context.Context, p spec.Plan, v *bundle.Verified, pol
 	if err != nil {
 		return spec.RunResult{}, err
 	}
-	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" && p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" && p.Kind != "ArtifactsPlan" {
+	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" && p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" && p.Kind != "ArtifactsPlan" && !gitOpsPhase(p) {
 		return spec.RunResult{}, spec.Err(2, "unsupported plan kind")
+	}
+	if gitOpsPhase(p) {
+		if _, err := e.gitOpsStageReference(ctx, p.GitOps.Staging, v, p.SitePath, policy, true); err != nil {
+			return spec.RunResult{}, err
+		}
 	}
 	if p.Kind == "RecoveryPlan" {
 		if p.SourceRun == "" {
@@ -123,6 +128,9 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		if p.Kind == "ArtifactsPlan" && result.State != "needs_reconciliation" {
 			result.State, active = "artifacts_failed", false
 		}
+		if p.Kind == "GitOpsPreparePlan" && result.State != "needs_reconciliation" {
+			result.State, active = "gitops_prepare_failed", false
+		}
 		persist, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if recordErr := e.Store.SetState(persist, result.RunID, result.State, active, result); recordErr != nil {
@@ -138,18 +146,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		return fail(spec.Err(17, "stop requested before first operation"))
 	}
 	checkBoundary := func() (spec.TargetSnapshot, error) {
-		if err := coord.check(ctx); err != nil {
-			return spec.TargetSnapshot{}, err
-		}
-		if err := e.checkPlan(ctx, p, v, policy, false); err != nil {
-			return spec.TargetSnapshot{}, err
-		}
-		snapshot, err := e.currentCheckpoint(ctx, result.RunID, p)
-		if err != nil {
-			return spec.TargetSnapshot{}, err
-		}
-		_, err = e.authorize(p, policy, a, approved)
-		return snapshot, err
+		return e.executionBoundary(ctx, result.RunID, p, v, policy, a, approved, coord)
 	}
 	hasPrerequisites := len(prerequisiteCheckIDs(p, v)) != 0
 	ops, err := e.Store.Operations(ctx, result.RunID)
@@ -186,11 +183,17 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			}
 		}
 	}
-	completed := map[string]bool{}
+	completed := e.gitOpsCoveredSteps(p, v)
 	for _, record := range ops {
+		if journalKind(record.Intent) == "gitops-model-verification" {
+			if err := e.validateGitOpsModelIntent(ctx, p, v, record); err != nil {
+				return fail(err)
+			}
+			continue
+		}
 		if record.State == "complete" {
 			completed[record.StepID] = true
-			if p.Kind == "ArtifactsPlan" {
+			if (p.Kind == "ArtifactsPlan" || gitOpsPhase(p)) && journalKind(record.Intent) != "check" {
 				var step spec.StepResult
 				if err := spec.Decode(record.Evidence, &step); err != nil {
 					return fail(err)
@@ -265,9 +268,9 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 			return fail(err)
 		}
 		step := spec.StepResult{ID: o.ID, Attempt: intent.Attempt, Status: "running", StartedAt: spec.Now(), ExternalID: external}
-		external, err = e.operation(ctx, p, result.RunID, o, v, policy)
+		external, err = e.operation(ctx, p, result.RunID, o, v, policy, func() error { _, err := checkBoundary(); return err })
 		if err == nil {
-			_, err = e.advanceCheckpoint(ctx, result.RunID, p, o, before)
+			_, err = e.advanceCheckpoint(ctx, result.RunID, p, v, policy, o, before)
 		}
 		step.ExternalID = external
 		step.FinishedAt = spec.Now()
@@ -323,6 +326,23 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		}
 		return result, nil
 	}
+	if p.Kind == "GitOpsPreparePlan" {
+		if err := e.gitOpsPreparationComplete(ctx, p, v, result.RunID); err != nil {
+			return fail(err)
+		}
+		if _, err := checkBoundary(); err != nil {
+			return fail(err)
+		}
+		result.State, result.FinishedAt = "gitops_prepared", spec.Now()
+		result.Findings = append(result.Findings, p.Findings...)
+		if err := e.clusterRecord(ctx, result.RunID, result.PlanDigest, result.State, result); err != nil {
+			return fail(err)
+		}
+		if err := e.Store.SetState(ctx, result.RunID, result.State, false, result); err != nil {
+			return fail(err)
+		}
+		return result, nil
+	}
 	if p.Kind == "RetirementPlan" {
 		if err := e.verifyRetained(ctx, p.RetainedResources); err != nil {
 			return fail(err)
@@ -356,7 +376,7 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 	if err := e.Store.SetState(ctx, result.RunID, result.State, true, result); err != nil {
 		return fail(err)
 	}
-	final, err := e.Inspect(ctx)
+	final, err := e.inspectPlan(ctx, p, v, policy)
 	if err != nil {
 		return fail(err)
 	}
@@ -375,9 +395,22 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		return fail(spec.Err(14, "post-change workloads are not ready"))
 	}
 	result.Domains["readiness"] = "pass"
-	if err := e.verifyGPUAssignment(ctx, v); err != nil {
-		result.Domains["readiness"] = "blocked"
-		return fail(err)
+	if !gitOpsPhase(p) {
+		if err := e.verifyGPUAssignment(ctx, v); err != nil {
+			result.Domains["readiness"] = "blocked"
+			return fail(err)
+		}
+	}
+	if p.Kind == "GitOpsChecksPlan" {
+		if checks, err := e.prerequisiteChecks(ctx, p, v, result.RunID, checkBoundary); err != nil {
+			recordPrerequisiteFailure(&result, checks)
+			return fail(err)
+		} else {
+			mergeCheckResults(&result, checks)
+		}
+		if err := e.verifyGitOpsModels(ctx, p, v, result.RunID, "start", checkBoundary, &result); err != nil {
+			return fail(err)
+		}
 	}
 	required := map[string]bool{}
 	for _, id := range p.RequiredChecks {
@@ -440,6 +473,12 @@ func (e *Engine) execute(ctx context.Context, p spec.Plan, v *bundle.Verified, p
 		recordPrerequisiteFailure(&result, checks)
 		return fail(err)
 	}
+	if p.Kind == "GitOpsChecksPlan" {
+		if err := e.verifyGitOpsModels(ctx, p, v, result.RunID, "finish", checkBoundary, &result); err != nil {
+			return fail(err)
+		}
+		result.Findings = append(result.Findings, p.Findings...)
+	}
 	if _, err := checkBoundary(); err != nil {
 		return fail(err)
 	}
@@ -469,7 +508,7 @@ func isJob(kind string) bool {
 
 func jobOperation(kind string) bool { return isJob(kind) || kind == "seed" || kind == "probe" }
 
-func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spec.Operation, v *bundle.Verified, policy spec.TrustPolicy) (string, error) {
+func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spec.Operation, v *bundle.Verified, policy spec.TrustPolicy, beforeVerification func() error) (string, error) {
 	if isJob(o.Type) {
 		if err := spec.ValidateOperation(o); err != nil {
 			return "", err
@@ -547,7 +586,7 @@ func (e *Engine) operation(ctx context.Context, p spec.Plan, runID string, o spe
 		}
 		return "deployment/" + o.Service, e.waitDeployment(ctx, o.Service, o.TimeoutSeconds, runID, string(d.UID))
 	case "seed":
-		return e.seedPVC(ctx, runID, o, v)
+		return e.seedPVC(ctx, runID, o, v, beforeVerification)
 	case "gitops":
 		return "", spec.Err(10, "GitOps owns this release; export and review the source change instead of direct mutation")
 	default:

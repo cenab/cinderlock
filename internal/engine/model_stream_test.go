@@ -141,7 +141,7 @@ func TestNativeSeedStreamsVerifiedFilesAndRetriesOnlyAfterQuiescence(t *testing.
 		}
 		return err
 	}
-	if _, err = e.seedPVC(ctx, "native-run", op, verified); spec.ExitCode(err) != 13 {
+	if _, err = e.seedPVC(ctx, "native-run", op, verified, nil); spec.ExitCode(err) != 13 {
 		t.Fatalf("lost stream accepted: %v", err)
 	}
 	if err = e.Store.Complete(ctx, intent, "uncertain", nil); err != nil {
@@ -331,7 +331,7 @@ func TestNativeUnsupportedRecipesFailBeforeVolumeMutation(t *testing.T) {
 				op.MountPath = "/models/../tmp"
 			}
 			client.ClearActions()
-			if _, err := e.seedPVC(context.Background(), "native-run", op, v); err == nil {
+			if _, err := e.seedPVC(context.Background(), "native-run", op, v, nil); err == nil {
 				t.Fatal("unsupported native recipe accepted")
 			}
 			for _, action := range client.Actions() {

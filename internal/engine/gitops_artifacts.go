@@ -109,9 +109,12 @@ func (e *Engine) verifyArtifactsBinding(p spec.Plan, v *bundle.Verified) error {
 	return nil
 }
 
-func (e *Engine) inspectPlan(ctx context.Context, p spec.Plan) (spec.TargetSnapshot, error) {
+func (e *Engine) inspectPlan(ctx context.Context, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy) (spec.TargetSnapshot, error) {
 	if p.Kind == "ArtifactsPlan" {
 		return e.inspectArtifacts(ctx)
+	}
+	if gitOpsPhase(p) {
+		return e.inspectGitOpsPlan(ctx, p, v, policy)
 	}
 	return e.Inspect(ctx)
 }

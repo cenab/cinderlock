@@ -81,7 +81,7 @@ func (e *Engine) PermissionFindings(ctx context.Context, p spec.Plan, objects []
 }
 
 func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any) ([]spec.Finding, error) {
-	common, err := e.permissionRequirements(spec.Plan{Header: p.Header}, nil, nil)
+	common, err := e.permissionRequirements(spec.Plan{Header: p.Header, GitOps: p.GitOps, Snapshot: p.Snapshot}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +125,11 @@ func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any
 	worker := func(step string) {
 		findings = append(findings, spec.Finding{Code: "SERVICE_ACCOUNT_REQUIRED", Severity: "info", Message: "Cinderlock worker uses ServiceAccount " + e.Site.Spec.Namespace + "/default; automountServiceAccountToken=false; service-account API grants are unverified", Source: step})
 	}
-	if p.Kind == "ArtifactsPlan" {
-		capability("target", "gitops-stage")
+	for _, action := range spec.PlanActions(spec.Plan{Header: p.Header}) {
+		capability("target", action)
+	}
+	if gitOpsPhase(p) {
+		findings = append(findings, e.workloadAccountFindings(objects, "controller-observation")...)
 	}
 	for _, op := range p.Operations {
 		step := "operation/" + op.ID
@@ -146,45 +149,48 @@ func (e *Engine) permissionSteps(p spec.Plan, objects, previous []map[string]any
 		if e.Site.Spec.AdmissionDryRun {
 			capability(step, "admission-dry-run")
 		}
-		for _, object := range objects {
-			kind, _ := object["kind"].(string)
-			if kind != "Deployment" && kind != "StatefulSet" {
-				continue
-			}
-			metadata, _ := object["metadata"].(map[string]any)
-			name, _ := metadata["name"].(string)
-			workload, _ := object["spec"].(map[string]any)
-			template, _ := workload["template"].(map[string]any)
-			pod, _ := template["spec"].(map[string]any)
-			account, _ := pod["serviceAccountName"].(string)
-			if account == "" {
-				account, _ = pod["serviceAccount"].(string)
-			}
-			if account == "" {
-				account = "default"
-			}
-			token := "unspecified; account and admission defaults unverified"
-			if mount, ok := pod["automountServiceAccountToken"].(bool); ok {
-				token = fmt.Sprint(mount)
-			}
-			findings = append(findings, spec.Finding{Code: "SERVICE_ACCOUNT_REQUIRED", Severity: "info", Message: kind + "/" + name + " uses ServiceAccount " + e.Site.Spec.Namespace + "/" + account + "; Pod automountServiceAccountToken=" + token + "; service-account API grants are unverified", Source: step})
-		}
+		findings = append(findings, e.workloadAccountFindings(objects, step)...)
 	}
 	for _, check := range p.Checks {
 		step := "check/" + check.ID
 		if err := disclose(step, spec.Plan{Header: p.Header, Checks: []spec.Check{check}}); err != nil {
 			return nil, err
 		}
-		actions := spec.EndpointActions([]spec.Check{check})
-		if len(actions) == 0 {
-			actions = []string{"job"}
-		}
+		actions := spec.PlanActions(spec.Plan{Checks: []spec.Check{check}})
 		for _, action := range actions {
 			capability(step, action)
 		}
 		worker(step)
 	}
 	return findings, nil
+}
+
+func (e *Engine) workloadAccountFindings(objects []map[string]any, step string) []spec.Finding {
+	var findings []spec.Finding
+	for _, object := range objects {
+		kind, _ := object["kind"].(string)
+		if kind != "Deployment" && kind != "StatefulSet" {
+			continue
+		}
+		metadata, _ := object["metadata"].(map[string]any)
+		name, _ := metadata["name"].(string)
+		workload, _ := object["spec"].(map[string]any)
+		template, _ := workload["template"].(map[string]any)
+		pod, _ := template["spec"].(map[string]any)
+		account, _ := pod["serviceAccountName"].(string)
+		if account == "" {
+			account, _ = pod["serviceAccount"].(string)
+		}
+		if account == "" {
+			account = "default"
+		}
+		token := "unspecified; account and admission defaults unverified"
+		if mount, ok := pod["automountServiceAccountToken"].(bool); ok {
+			token = fmt.Sprint(mount)
+		}
+		findings = append(findings, spec.Finding{Code: "SERVICE_ACCOUNT_REQUIRED", Severity: "info", Message: kind + "/" + name + " uses ServiceAccount " + e.Site.Spec.Namespace + "/" + account + "; Pod automountServiceAccountToken=" + token + "; service-account API grants are unverified", Source: step})
+	}
+	return findings
 }
 
 func permissionLabel(a authorizationv1.ResourceAttributes) string {
@@ -233,7 +239,15 @@ func (e *Engine) permissionRequirements(p spec.Plan, objects, previous []map[str
 		return nil
 	}
 	// These reads are the fixed target/checkpoint observer, not a broad grant.
-	if p.Kind != "ArtifactsPlan" {
+	if gitOpsPhase(p) {
+		reads, err := e.gitOpsPermissionReads(p)
+		if err != nil {
+			return nil, err
+		}
+		for _, read := range reads {
+			required[permissionLabel(read)] = read
+		}
+	} else if p.Kind != "ArtifactsPlan" {
 		for _, kind := range []string{"Deployment", "StatefulSet", "ConfigMap", "Service", "PersistentVolumeClaim", "Secret"} {
 			r := permissionResources[kind]
 			add(r.group, r.resource, "", "list")

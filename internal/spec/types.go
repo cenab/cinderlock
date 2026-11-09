@@ -319,6 +319,7 @@ type TargetSnapshot struct {
 	Findings              []Finding      `json:"findings"`
 }
 type Plan struct {
+	GitOps              *GitOpsPlanBinding   `json:"gitOps,omitempty" yaml:"gitOps,omitempty"`
 	ConfigurationReview *ConfigurationReview `json:"configurationReview,omitempty" yaml:"configurationReview,omitempty"`
 	Storage             *StorageAssessment   `json:"storage,omitempty" yaml:"storage,omitempty"`
 	DesiredStateDigest  string               `json:"desiredStateDigest,omitempty" yaml:"desiredStateDigest,omitempty"`

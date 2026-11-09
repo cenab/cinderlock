@@ -37,9 +37,10 @@ type jobOptions struct {
 	ReadOnlyPVC       bool
 	ManifestConfigMap string
 	IntentStepID      string
-	Fixtures          []fixtureBinding
+	Fixtures          []seedVolumeBinding
 	Endpoint          *spec.Check
 	Resources         *spec.WorkerResources
+	BeforeCreate      func() error
 }
 
 func (e *Engine) executeJobWithOptions(ctx context.Context, runID, stepID, image string, command, args, secretRefs []string, pvc, mount string, timeout int64, options *jobOptions) (string, error) {
@@ -183,6 +184,11 @@ func (e *Engine) executeJobWithOptions(ctx context.Context, runID, stepID, image
 	if !errors.Is(workerErr, sql.ErrNoRows) {
 		return name, workerErr
 	}
+	if options != nil && options.BeforeCreate != nil {
+		if err := options.BeforeCreate(); err != nil {
+			return name, err
+		}
+	}
 	created, err := e.Kube.Client.BatchV1().Jobs(e.Site.Spec.Namespace).Create(ctx, job, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
 		return name, spec.Err(13, "Job exists without a recorded server UID; name and labels cannot establish original identity")
@@ -304,7 +310,7 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 		return result
 	}
 	var fixturePlan spec.Plan
-	var fixtures []fixtureBinding
+	var fixtures []seedVolumeBinding
 	if len(c.Fixtures) > 0 {
 		var err error
 		fixturePlan, err = e.fixtureRunPlan(ctx, runID)
@@ -467,7 +473,7 @@ func (e *Engine) check(ctx context.Context, runID string, c spec.Check, v *bundl
 	return e.recordCheckResult(intent, result, err, len(fixtures) > 0 && !applicationAttempted)
 }
 
-func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v *bundle.Verified) (string, error) {
+func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v *bundle.Verified, beforeVerification func() error) (string, error) {
 	if len(o.Command) != 0 {
 		if err := spec.ValidateOperation(o); err != nil {
 			return "", err
@@ -513,7 +519,7 @@ func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v 
 		return "", err
 	}
 	if len(o.Command) == 0 {
-		return e.streamModelPVC(ctx, runID, o, v)
+		return e.streamModelPVC(ctx, runID, o, v, beforeVerification)
 	}
 	image, err := e.image(v, o.Image)
 	if err != nil {
@@ -523,7 +529,7 @@ func (e *Engine) seedPVC(ctx context.Context, runID string, o spec.Operation, v 
 	if err != nil {
 		return seedJob, err
 	}
-	if _, err := e.verifySeed(ctx, runID, o, v); err != nil {
+	if _, err := e.verifySeed(ctx, runID, o, v, beforeVerification); err != nil {
 		return seedJob, err
 	}
 	return seedJob, nil

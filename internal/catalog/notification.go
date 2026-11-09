@@ -53,7 +53,7 @@ func validateNotificationRules(rules []NotificationRule) error {
 		}
 		seen[r.ID] = true
 		for _, state := range r.States {
-			if !contains([]string{"succeeded", "failed", "blocked", "needs_reconciliation", "recovered", "recovery_failed", "failed_lock", "interrupted", "artifacts_staged", "artifacts_failed"}, state) {
+			if !contains([]string{"succeeded", "failed", "blocked", "needs_reconciliation", "recovered", "recovery_failed", "failed_lock", "interrupted", "artifacts_staged", "artifacts_failed", "gitops_prepared", "gitops_prepare_failed"}, state) {
 				return errors.New("unsupported notification run state")
 			}
 		}

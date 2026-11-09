@@ -105,7 +105,7 @@ func (e *Engine) modelVolumeManifest(ctx context.Context, runID string, operatio
 	return name, nil
 }
 
-func (e *Engine) verifySeed(ctx context.Context, runID string, operation spec.Operation, verified *bundle.Verified) (string, error) {
+func (e *Engine) verifySeed(ctx context.Context, runID string, operation spec.Operation, verified *bundle.Verified, beforeVerification func() error) (string, error) {
 	name, err := e.modelVolumeManifest(ctx, runID, operation, verified)
 	if err != nil {
 		return name, err
@@ -121,5 +121,14 @@ func (e *Engine) verifySeed(ctx context.Context, runID string, operation spec.Op
 	if operation.ModelSubPath != "" {
 		args = append(args, "--subpath", operation.ModelSubPath)
 	}
-	return e.executeJobWithOptions(ctx, runID, "verify-model-"+operation.ID, image, []string{"/usr/local/bin/cinderlock", "helper", "verify-model"}, args, nil, operation.PVC, "/cinderlock-model", operation.TimeoutSeconds, &jobOptions{ReadOnlyPVC: true, ManifestConfigMap: name, IntentStepID: operation.ID, AttemptScoped: len(operation.Command) == 0})
+	options := &jobOptions{ReadOnlyPVC: true, ManifestConfigMap: name, IntentStepID: operation.ID, AttemptScoped: len(operation.Command) == 0}
+	if beforeVerification != nil {
+		options.BeforeCreate = func() error {
+			if err := beforeVerification(); err != nil {
+				return spec.Err(13, "seed transfer awaits an authorized verifier; reconcile original workers: %v", err)
+			}
+			return nil
+		}
+	}
+	return e.executeJobWithOptions(ctx, runID, "verify-model-"+operation.ID, image, []string{"/usr/local/bin/cinderlock", "helper", "verify-model"}, args, nil, operation.PVC, "/cinderlock-model", operation.TimeoutSeconds, options)
 }

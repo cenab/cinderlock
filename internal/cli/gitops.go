@@ -11,6 +11,7 @@ import (
 
 func addGitOpsDelivery(g *cobra.Command, o *options) {
 	addGitOpsProfileObservation(g, o)
+	addGitOpsExecution(g, o)
 	var site, out string
 	plan := &cobra.Command{Use: "artifacts-plan BUNDLE", Short: "Plan authorized image-only staging for an external GitOps owner", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
 		ctx, cancel := o.context(c)

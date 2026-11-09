@@ -22,7 +22,7 @@ func licenseTimeError(requirement *spec.LicenseRequirement, now time.Time) error
 }
 
 func prerequisiteCheckIDs(p spec.Plan, v *bundle.Verified) []string {
-	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" {
+	if p.Kind != "Plan" && p.Kind != "RecoveryPlan" && p.Kind != "GitOpsChecksPlan" {
 		return nil
 	}
 	ids := []string{}

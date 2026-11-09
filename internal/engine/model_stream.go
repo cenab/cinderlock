@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/transport/spdy"
 )
 
-func (e *Engine) streamModelPVC(ctx context.Context, runID string, o spec.Operation, v *bundle.Verified) (string, error) {
+func (e *Engine) streamModelPVC(ctx context.Context, runID string, o spec.Operation, v *bundle.Verified, beforeVerification func() error) (string, error) {
 	if !spec.ValidDigest(e.Site.Spec.HelperImage) {
 		return "", spec.Err(16, "native model staging requires an independently admitted exact helper manifest digest")
 	}
@@ -62,7 +62,7 @@ func (e *Engine) streamModelPVC(ctx context.Context, runID string, o spec.Operat
 	if err != nil || status != "complete" {
 		return name, spec.Err(13, "native receiver completion cannot be established: %v", err)
 	}
-	if _, err = e.verifySeed(ctx, runID, o, v); err != nil {
+	if _, err = e.verifySeed(ctx, runID, o, v, beforeVerification); err != nil {
 		return name, err
 	}
 	return name, nil

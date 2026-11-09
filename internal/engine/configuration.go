@@ -348,6 +348,12 @@ func (e *Engine) addConfigurationFindings(ctx context.Context, p *spec.Plan, v *
 }
 
 func (e *Engine) checkConfigurationPlan(ctx context.Context, p spec.Plan, v *bundle.Verified) error {
+	if gitOpsPhase(p) {
+		if contract := v.Index.Lock.Release.Spec.Deployment.Configuration; contract != nil {
+			return checkSiteConfiguration(contract, e.Site.Spec.Values)
+		}
+		return nil
+	}
 	if p.Kind == "ProbePlan" || p.Kind == "RetirementPlan" || p.Kind == "ArtifactsPlan" {
 		return nil
 	}

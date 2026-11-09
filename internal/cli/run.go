@@ -169,8 +169,12 @@ func addRun(root *cobra.Command, o *options) {
 				return spec.Err(15, "run did not meet required acceptance")
 			case "artifacts_staged":
 				return spec.Err(10, "images are staged; application acceptance is not established")
+			case "gitops_prepared":
+				return spec.Err(10, "native revision volumes are prepared; application acceptance is not established")
 			case "artifacts_failed":
 				return spec.Err(15, "image staging failed; application acceptance is not established")
+			case "gitops_prepare_failed":
+				return spec.Err(15, "native GitOps preparation failed; application acceptance is not established")
 			default:
 				return spec.Err(10, "run is not complete")
 			}
@@ -212,6 +216,9 @@ func addRun(root *cobra.Command, o *options) {
 		}
 		s, policy, e := o.site(p.SitePath)
 		if e != nil {
+			return e
+		}
+		if e := o.gitOpsPhasePaths(p, s); e != nil {
 			return e
 		}
 		v, e := bundle.Verify(ctx, p.BundlePath, policy)
@@ -344,6 +351,9 @@ func (o *options) applyPlan(c *cobra.Command, p spec.Plan, authPath string) (spe
 	if e != nil {
 		return spec.RunResult{}, e
 	}
+	if err := o.gitOpsPhasePaths(p, s); err != nil {
+		return spec.RunResult{}, err
+	}
 	v, e := bundle.Verify(ctx, p.BundlePath, policy)
 	if e != nil {
 		return spec.RunResult{}, spec.Err(12, "bundle rejected: %v", e)
@@ -390,6 +400,9 @@ func addAuthorize(g *cobra.Command, o *options) {
 		if pd != p.PolicyDigest || policy.Spec.Epoch != p.PolicyEpoch {
 			return spec.Err(11, "plan policy is stale")
 		}
+		if e := o.validateGitOpsApproval(c, p, site, policy, out); e != nil {
+			return e
+		}
 		private, e := bundle.ReadPrivateKey(key)
 		if e != nil {
 			return e
@@ -433,7 +446,12 @@ func addAuthorize(g *cobra.Command, o *options) {
 		if e = spec.SignAuthorization(&a, private, id); e != nil {
 			return e
 		}
-		if e = spec.Write(out, a); e != nil {
+		if p.Kind == "GitOpsPreparePlan" || p.Kind == "GitOpsChecksPlan" {
+			e = engine.WriteGitOpsPhaseAuthorization(p, a, out)
+		} else {
+			e = spec.Write(out, a)
+		}
+		if e != nil {
 			return e
 		}
 		return o.emit(map[string]any{"path": out, "planDigest": d, "expiresAt": a.ExpiresAt})

@@ -360,7 +360,7 @@ func TestResumeRetainsObservedAcceptanceInRunResult(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.operation(ctx, p, runID, op, v, policy); err != nil {
+		if _, err := e.operation(ctx, p, runID, op, v, policy, nil); err != nil {
 			t.Fatal(err)
 		}
 		if err := e.Store.Complete(ctx, intent, "complete", nil); err != nil {
@@ -526,7 +526,7 @@ func TestResumeRetainsOptionalNumericFailureWithoutRepeatingWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := e.operation(ctx, p, runID, op, v, policy); err != nil {
+			if _, err := e.operation(ctx, p, runID, op, v, policy, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := e.Store.Complete(ctx, attempt, "complete", nil); err != nil {

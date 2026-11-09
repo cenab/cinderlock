@@ -66,14 +66,24 @@ func jobRecipe(job *batchv1.Job) (string, error) {
 	}{pod, job.Spec.BackoffLimit, job.Spec.ActiveDeadlineSeconds})
 }
 
-func (e *Engine) inspectWorker(ctx context.Context, worker state.Worker) (string, error) {
+// workerJob binds only the original Job. Consumer inventories use this seam to
+// avoid recursively validating the same claim's mounted provenance.
+func (e *Engine) workerJob(ctx context.Context, worker state.Worker) (*batchv1.Job, error) {
 	job, err := e.Kube.Client.BatchV1().Jobs(e.Site.Spec.Namespace).Get(ctx, worker.Name, metav1.GetOptions{})
 	if err != nil {
-		return "unknown", spec.Err(13, "recorded Job identity cannot be observed: %v", err)
+		return nil, spec.Err(13, "recorded Job identity cannot be observed: %v", err)
 	}
 	digest, err := jobRecipe(job)
 	if err != nil || string(job.UID) != worker.UID || job.Labels["cinderlock.dev/run"] != worker.RunID || job.Labels["cinderlock.dev/step"] != fingerprint(worker.Role)[7:23] || digest != worker.RecipeDigest || job.Annotations["cinderlock.dev/recipe-digest"] != worker.RecipeDigest {
-		return "unknown", spec.Err(13, "Job UID, ownership or recipe differs from recorded worker; replacement cannot establish completion")
+		return nil, spec.Err(13, "Job UID, ownership or recipe differs from recorded worker; replacement cannot establish completion")
+	}
+	return job, nil
+}
+
+func (e *Engine) inspectWorker(ctx context.Context, worker state.Worker) (string, error) {
+	job, err := e.workerJob(ctx, worker)
+	if err != nil {
+		return "unknown", err
 	}
 	if err := e.mountedFixtureBindings(ctx, job, worker.RunID); err != nil {
 		return "unknown", err

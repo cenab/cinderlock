@@ -250,13 +250,7 @@ func (e *Engine) Plan(ctx context.Context, v *bundle.Verified, bundlePath, siteP
 		}
 	}
 	if e.Store != nil {
-		floor, err := e.Store.ReleaseFloor(ctx, snap.TargetID, r.Metadata.Application, r.Metadata.Channel)
-		if err != nil {
-			return p, err
-		}
-		if r.Metadata.Sequence < floor {
-			block("RELEASE_REPLAY", "release sequence is lower than the locally accepted high-water sequence")
-		}
+		e.addReleaseFloorFindings(ctx, &p)
 	}
 	e.addExecutionFindings(ctx, &p, v, policy)
 	e.addStorageFindings(ctx, &p, v, policy)
@@ -279,7 +273,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 	if err := e.verifyRecipeBinding(p, v); err != nil {
 		return err
 	}
-	if p.Kind == "Plan" || p.Kind == "RecoveryPlan" {
+	if p.Kind == "Plan" || p.Kind == "RecoveryPlan" || p.Kind == "GitOpsChecksPlan" {
 		if err := licenseTimeError(v.Index.Lock.Release.Spec.License, time.Now()); err != nil {
 			return err
 		}
@@ -335,7 +329,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 			return spec.Err(16, "trust policy expired")
 		}
 	}
-	current, err := e.inspectPlan(ctx, p)
+	current, err := e.inspectPlan(ctx, p, v, policy)
 	if err != nil {
 		return err
 	}
@@ -348,6 +342,11 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 	if err := e.checkPolicyFloor(ctx, p); err != nil {
 		return err
 	}
+	if p.Kind == "Plan" || p.Kind == "GitOpsChecksPlan" {
+		if finding := e.releaseFloorFinding(ctx, p); finding != nil {
+			return spec.Err(10, "%s: %s", finding.Code, finding.Message)
+		}
+	}
 	if err := e.checkExecutionProfile(ctx, p, v, policy); err != nil {
 		return err
 	}
@@ -357,7 +356,7 @@ func (e *Engine) checkPlan(ctx context.Context, p spec.Plan, v *bundle.Verified,
 	if findings := e.secretFindings(p, current, v); len(findings) > 0 {
 		return spec.Err(10, "%s", findings[0].Message)
 	}
-	if p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" && p.Kind != "ArtifactsPlan" {
+	if p.Kind != "ProbePlan" && p.Kind != "RetirementPlan" && p.Kind != "ArtifactsPlan" && !gitOpsPhase(p) {
 		profile := v.Index.Lock.Release.Spec.AIProfile
 		if profile.GPUCount > 0 || len(profile.GPUModels) > 0 || profile.MinGPUMemoryMiB > 0 || len(profile.DriverVersions) > 0 {
 			if err := e.validateConfiguredHardware(ctx, v); err != nil {
@@ -434,6 +433,12 @@ func (e *Engine) verifyRecipeBinding(p spec.Plan, v *bundle.Verified) error {
 	}
 	if !equal(p.Recovery, r.Spec.Recovery) {
 		return spec.Err(12, "plan recovery definitions differ from the signed release")
+	}
+	if gitOpsPhase(p) {
+		return e.verifyGitOpsBinding(p, v)
+	}
+	if p.GitOps != nil {
+		return spec.Err(12, "GitOps execution bindings cannot extend another plan kind")
 	}
 	if p.Kind == "ArtifactsPlan" {
 		return e.verifyArtifactsBinding(p, v)
@@ -517,7 +522,7 @@ func (e *Engine) verifyRecipeBinding(p spec.Plan, v *bundle.Verified) error {
 	return spec.Err(12, "plan operations differ from signed transition")
 }
 
-func (e *Engine) currentCheckpoint(ctx context.Context, runID string, p spec.Plan) (spec.TargetSnapshot, error) {
+func (e *Engine) currentCheckpoint(ctx context.Context, runID string, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy) (spec.TargetSnapshot, error) {
 	digest, body, err := e.Store.Checkpoint(ctx, runID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -530,7 +535,7 @@ func (e *Engine) currentCheckpoint(ctx context.Context, runID string, p spec.Pla
 			return spec.TargetSnapshot{}, err
 		}
 	}
-	current, err := e.inspectPlan(ctx, p)
+	current, err := e.inspectPlan(ctx, p, v, policy)
 	if err != nil {
 		return current, err
 	}
@@ -551,8 +556,8 @@ func (e *Engine) currentCheckpoint(ctx context.Context, runID string, p spec.Pla
 	return expected, nil
 }
 
-func (e *Engine) advanceCheckpoint(ctx context.Context, runID string, p spec.Plan, op spec.Operation, before spec.TargetSnapshot) (spec.TargetSnapshot, error) {
-	after, err := e.inspectPlan(ctx, p)
+func (e *Engine) advanceCheckpoint(ctx context.Context, runID string, p spec.Plan, v *bundle.Verified, policy spec.TrustPolicy, op spec.Operation, before spec.TargetSnapshot) (spec.TargetSnapshot, error) {
+	after, err := e.inspectPlan(ctx, p, v, policy)
 	if err != nil {
 		return after, err
 	}

@@ -71,7 +71,7 @@ func TestAuthoredJobsUseDeclaredBudget(t *testing.T) {
 					t.Fatal(err)
 				}
 				var err error
-				name, err = e.operation(ctx, p, "worker-run", op, v, policy)
+				name, err = e.operation(ctx, p, "worker-run", op, v, policy, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -79,7 +79,7 @@ func TestAuthoredJobsUseDeclaredBudget(t *testing.T) {
 				client.ClearActions()
 				changed := op
 				changed.TimeoutSeconds++
-				if _, err := e.operation(ctx, p, "worker-run", changed, v, policy); spec.ExitCode(err) != 13 || !strings.Contains(err.Error(), "recipe") {
+				if _, err := e.operation(ctx, p, "worker-run", changed, v, policy, nil); spec.ExitCode(err) != 13 || !strings.Contains(err.Error(), "recipe") {
 					t.Fatalf("changed recipe reused the original worker: %v", err)
 				}
 				for _, action := range client.Actions() {
@@ -163,7 +163,7 @@ func TestWorkerBudgetBlocksPlanApplyResumeAndDirectEffects(t *testing.T) {
 						t.Fatalf("invalid check reached execution: %+v", result)
 					}
 				} else {
-					_, err := e.operation(ctx, p, "invalid-budget", *op, v, policy)
+					_, err := e.operation(ctx, p, "invalid-budget", *op, v, policy, nil)
 					assertRejected(err)
 				}
 				if len(client.Actions()) != 0 {
@@ -212,7 +212,7 @@ func TestChangedOperationBudgetIntentCannotSatisfyResume(t *testing.T) {
 				t.Fatal(err)
 			}
 			completeWorkers(client)
-			if _, err := e.operation(ctx, p, "intent-budget", changed, v, policy); err != nil {
+			if _, err := e.operation(ctx, p, "intent-budget", changed, v, policy, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := e.Store.Complete(ctx, intent, "uncertain", nil); err != nil {

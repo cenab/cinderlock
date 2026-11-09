@@ -250,6 +250,11 @@ func (s *Store) Run(ctx context.Context, id string) (Run, error) {
 	return scanRun(s.db.QueryRowContext(ctx, "SELECT "+runFields+" FROM runs WHERE id=?", id))
 }
 
+// ActiveRun uses the same exact scope as the unique mutation gate.
+func (s *Store) ActiveRun(ctx context.Context, application, namespace, targetID string) (Run, error) {
+	return scanRun(s.db.QueryRowContext(ctx, "SELECT "+runFields+" FROM runs WHERE application=? AND namespace=? AND target_id=? AND active=1", application, namespace, targetID))
+}
+
 func (s *Store) Runs(ctx context.Context) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT "+runFields+" FROM runs ORDER BY created_at DESC,id")
 	if err != nil {

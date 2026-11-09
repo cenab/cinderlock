@@ -162,7 +162,7 @@ func TestInspectionIsReadOnlyAndStatusChurnDoesNotInvalidatePlan(t *testing.T) {
 func TestCheckpointDetectsExternalDriftButAdvancesForOwnRestart(t *testing.T) {
 	e, client, policy := fixture(t)
 	ctx := context.Background()
-	p, _ := fixturePlan(t, e, policy)
+	p, v := fixturePlan(t, e, policy)
 	plan, _ := spec.Canonical(p)
 	site, _ := spec.Canonical(e.Site)
 	if err := e.Store.CreateRun(ctx, state.Run{ID: "run", Application: "app", Namespace: "test", TargetID: p.Snapshot.TargetID, PlanDigest: "plan", Plan: plan, Site: site}); err != nil {
@@ -174,7 +174,7 @@ func TestCheckpointDetectsExternalDriftButAdvancesForOwnRestart(t *testing.T) {
 	d, _ := client.AppsV1().Deployments("test").Get(ctx, "app", metav1.GetOptions{})
 	d.Spec.Template.Spec.Containers[0].Image = "changed"
 	_, _ = client.AppsV1().Deployments("test").Update(ctx, d, metav1.UpdateOptions{})
-	if _, err := e.currentCheckpoint(ctx, "run", p); spec.ExitCode(err) != 11 {
+	if _, err := e.currentCheckpoint(ctx, "run", p, v, policy); spec.ExitCode(err) != 11 {
 		t.Fatalf("external drift not rejected: %v", err)
 	}
 	current, _ := e.Inspect(ctx)
@@ -182,10 +182,10 @@ func TestCheckpointDetectsExternalDriftButAdvancesForOwnRestart(t *testing.T) {
 	_ = e.Store.SetCheckpoint(ctx, "run", digest, current)
 	d, _ = client.AppsV1().Deployments("test").Get(ctx, "app", metav1.GetOptions{})
 	_, _ = client.AppsV1().Deployments("test").Update(ctx, RestartSpec(d, "run"), metav1.UpdateOptions{})
-	if _, err := e.advanceCheckpoint(ctx, "run", p, spec.Operation{Type: "restart"}, current); err != nil {
+	if _, err := e.advanceCheckpoint(ctx, "run", p, v, policy, spec.Operation{Type: "restart"}, current); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.currentCheckpoint(ctx, "run", p); err != nil {
+	if _, err := e.currentCheckpoint(ctx, "run", p, v, policy); err != nil {
 		t.Fatalf("own confirmed mutation failed to advance checkpoint: %v", err)
 	}
 }

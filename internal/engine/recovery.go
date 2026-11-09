@@ -16,6 +16,9 @@ func (e *Engine) RecoveryPlan(ctx context.Context, runID, recoveryID, bundlePath
 	if err := spec.Decode(record.Plan, &original); err != nil {
 		return spec.Plan{}, err
 	}
+	if gitOpsPhase(original) || original.GitOps != nil {
+		return spec.Plan{}, spec.Err(10, "GitOps source and application-data recovery require their own supported authorized phase; a Helm recovery plan cannot substitute")
+	}
 	var selected *spec.Recovery
 	for i := range original.Recovery {
 		r := &original.Recovery[i]

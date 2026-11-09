@@ -2,8 +2,11 @@ package engine
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/cenab/cinderlock/internal/bundle"
 	"github.com/cenab/cinderlock/internal/modelstage"
@@ -17,15 +20,15 @@ import (
 
 const fixtureEnvironment = "CINDERLOCK_FIXTURE_PROVENANCE"
 
-var fixtureID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+var seedAssetID = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 
 func reservedJobEnvironment(name string) bool {
 	return name == fixtureEnvironment || name == modelEnvironment || name == "CINDERLOCK_RUN_ID" || name == "CINDERLOCK_OPERATION_ID"
 }
 
-// fixtureBinding is durable acceptance evidence, not an assertion that a storage
+// seedVolumeBinding is durable native seed evidence, not an assertion that a storage
 // administrator cannot change bytes below the Kubernetes API.
-type fixtureBinding struct {
+type seedVolumeBinding struct {
 	AssetID        string       `json:"assetID"`
 	AssetDigest    string       `json:"assetDigest"`
 	SeedID         string       `json:"seedID"`
@@ -52,7 +55,7 @@ func fixtureSeeds(p spec.Plan, c spec.Check) ([]spec.Operation, error) {
 	selected := make([]spec.Operation, 0, len(c.Fixtures))
 	seen := map[string]bool{}
 	for _, id := range c.Fixtures {
-		if !fixtureID.MatchString(id) || seen[id] {
+		if !seedAssetID.MatchString(id) || seen[id] {
 			return nil, spec.Err(10, "fixture IDs must be distinct confined asset identifiers")
 		}
 		seen[id] = true
@@ -119,7 +122,22 @@ func (e *Engine) fixtureFindings(ctx context.Context, p spec.Plan, v *bundle.Ver
 	if !needsFixtures {
 		return findings
 	}
-	if needsChart {
+	if p.Kind == "GitOpsChecksPlan" {
+		if p.GitOps == nil {
+			block(spec.Err(10, "fixture exclusivity needs the reviewed GitOps inventory"))
+			return findings
+		}
+		manifest, err := ReadGitOpsManifest(p.GitOps.ManifestPath)
+		if err != nil || spec.Hash(manifest) != p.DesiredStateDigest {
+			block(spec.Err(11, "fixture exclusivity reviewed GitOps inventory changed"))
+			return findings
+		}
+		objects, err = PermissionObjects(manifest)
+		if err != nil {
+			block(err)
+			return findings
+		}
+	} else if needsChart {
 		var err error
 		objects, err = e.render(ctx, v)
 		if err != nil {
@@ -150,6 +168,11 @@ func (e *Engine) fixtureFindings(ctx context.Context, p spec.Plan, v *bundle.Ver
 			}
 			pvc, err := e.Kube.Client.CoreV1().PersistentVolumeClaims(e.Site.Spec.Namespace).Get(ctx, seed.PVC, metav1.GetOptions{})
 			if apierrors.IsNotFound(err) {
+				if gitOpsPhase(p) {
+					if err := e.gitOpsUnreferencedClaim(ctx, "", seed.PVC); err != nil {
+						block(err)
+					}
+				}
 				if err := e.fixturePodExclusivity(ctx, "", seed.PVC); err != nil {
 					block(err)
 				}
@@ -169,7 +192,18 @@ func (e *Engine) fixtureFindings(ctx context.Context, p spec.Plan, v *bundle.Ver
 				block(spec.Err(10, "existing fixture PVC is not owned by this exact planned run"))
 				continue
 			}
-			if _, err = e.resolveFixtureBindings(ctx, run.ID, p, check, v); err != nil {
+			intent, intentErr := e.Store.LatestOperation(ctx, run.ID, seed.ID)
+			if intentErr == nil && intent.State != "complete" && run.Active {
+				// A guard between native transfer and verifier may inspect the
+				// original in-flight seed; application fixture use stays strict.
+				_, err = e.resolveSeedVolumeBinding(ctx, run.ID, seed, v, false)
+				if err == nil {
+					err = e.fixturePodExclusivity(ctx, run.ID, seed.PVC)
+				}
+			} else {
+				_, err = e.resolveFixtureBindings(ctx, run.ID, p, check, v)
+			}
+			if err != nil {
 				block(err)
 			}
 		}
@@ -196,7 +230,7 @@ func (e *Engine) fixtureRunPlan(ctx context.Context, runID string) (spec.Plan, e
 	return p, nil
 }
 
-func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spec.Plan, c spec.Check, v *bundle.Verified) ([]fixtureBinding, error) {
+func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spec.Plan, c spec.Check, v *bundle.Verified) ([]seedVolumeBinding, error) {
 	if v == nil || p.BundleDigest != v.Digest {
 		return nil, spec.Err(13, "fixture bundle differs from the admitted plan")
 	}
@@ -204,42 +238,13 @@ func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spe
 	if err != nil {
 		return nil, err
 	}
-	bindings := make([]fixtureBinding, 0, len(seeds))
+	bindings := make([]seedVolumeBinding, 0, len(seeds))
 	for _, seed := range seeds {
-		asset, err := v.Asset(seed.Asset)
-		if err != nil || asset.Type == "image" {
-			return nil, spec.Err(13, "fixture is not a locked file artifact")
-		}
-		manifest, err := modelstage.Manifest(asset.Files)
+		binding, err := e.resolveSeedVolumeBinding(ctx, runID, seed, v, true)
 		if err != nil {
 			return nil, err
 		}
-		intent, err := e.Store.LatestOperation(ctx, runID, seed.ID)
-		if err != nil || intent.State != "complete" {
-			return nil, spec.Err(13, "fixture seed has not completed in this run")
-		}
-		seedDigest, _ := spec.Digest(seed)
-		var recorded spec.Operation
-		if err := spec.Decode(intent.Intent, &recorded); err != nil {
-			return nil, err
-		}
-		if recordedDigest, err := spec.Digest(recorded); err != nil || recordedDigest != seedDigest {
-			return nil, spec.Err(13, "fixture seed intent differs from the selected operation")
-		}
-		verifier, err := e.operationWorker(ctx, runID, seed.ID, intent.Attempt, "verify-model-"+seed.ID)
-		if err != nil {
-			return nil, err
-		}
-		pvc, err := e.Kube.Client.CoreV1().PersistentVolumeClaims(e.Site.Spec.Namespace).Get(ctx, seed.PVC, metav1.GetOptions{})
-		if err != nil {
-			return nil, spec.Err(13, "fixture PVC cannot be observed")
-		}
-		cm, err := e.Kube.Client.CoreV1().ConfigMaps(e.Site.Spec.Namespace).Get(ctx, jobName(runID, "manifest-"+seed.ID), metav1.GetOptions{})
-		if err != nil || cm.UID == "" || cm.Immutable == nil || !*cm.Immutable || len(cm.Data) != 1 || cm.Data["files.json"] != string(manifest) || len(cm.BinaryData) != 0 || cm.Annotations["cinderlock.dev/pvc-uid"] != string(pvc.UID) || cm.Labels["cinderlock.dev/run"] != runID || cm.Annotations["cinderlock.dev/asset-digest"] != asset.Digest {
-			return nil, spec.Err(13, "fixture manifest or original PVC identity differs from the signed seed")
-		}
-		binding := fixtureBinding{AssetID: seed.Asset, AssetDigest: asset.Digest, SeedID: seed.ID, SeedDigest: seedDigest, SeedAttempt: intent.Attempt, PVC: seed.PVC, PVCUID: string(pvc.UID), SubPath: seed.ModelSubPath, Manifest: cm.Name, ManifestUID: string(cm.UID), ManifestDigest: spec.Hash(manifest), Verifier: verifier}
-		if err := e.validateFixtureBinding(ctx, runID, binding); err != nil {
+		if err := e.fixturePodExclusivity(ctx, runID, binding.PVC); err != nil {
 			return nil, err
 		}
 		bindings = append(bindings, binding)
@@ -247,21 +252,66 @@ func (e *Engine) resolveFixtureBindings(ctx context.Context, runID string, p spe
 	return bindings, nil
 }
 
-func (e *Engine) validateFixtureBinding(ctx context.Context, runID string, binding fixtureBinding) error {
-	if binding.PVCUID == "" || binding.ManifestUID == "" || binding.SeedAttempt < 1 || !fixtureID.MatchString(binding.AssetID) || !spec.ValidDigest(binding.AssetDigest) || !spec.ValidDigest(binding.ManifestDigest) || binding.Verifier.RunID != runID || binding.Verifier.StepID != binding.SeedID || binding.Verifier.Attempt != binding.SeedAttempt || binding.Verifier.Role != "verify-model-"+binding.SeedID {
-		return spec.Err(13, "fixture provenance is incomplete")
+func (e *Engine) resolveSeedVolumeBinding(ctx context.Context, runID string, seed spec.Operation, v *bundle.Verified, requireComplete bool) (seedVolumeBinding, error) {
+	var binding seedVolumeBinding
+	asset, err := v.Asset(seed.Asset)
+	if err != nil || asset.Type == "image" {
+		return binding, spec.Err(13, "seed is not a locked file artifact")
+	}
+	manifest, err := modelstage.Manifest(asset.Files)
+	if err != nil {
+		return binding, err
+	}
+	intent, err := e.Store.LatestOperation(ctx, runID, seed.ID)
+	if err != nil || requireComplete && intent.State != "complete" || !requireComplete && !slices.Contains([]string{"complete", "intent", "uncertain", "failed"}, intent.State) {
+		return binding, spec.Err(13, "native seed has not completed in this run")
+	}
+	seedDigest, err := spec.Digest(seed)
+	var recorded spec.Operation
+	if err != nil || spec.Decode(intent.Intent, &recorded) != nil {
+		return binding, spec.Err(13, "native seed intent cannot be decoded")
+	}
+	if recordedDigest, err := spec.Digest(recorded); err != nil || recordedDigest != seedDigest {
+		return binding, spec.Err(13, "native seed intent differs from the selected operation")
+	}
+	verifier, err := e.Store.Worker(ctx, runID, seed.ID, intent.Attempt, "verify-model-"+seed.ID)
+	if err != nil && (requireComplete || !errors.Is(err, sql.ErrNoRows)) {
+		return binding, spec.Err(13, "native seed verifier original identity is unavailable")
+	}
+	pvc, err := e.Kube.Client.CoreV1().PersistentVolumeClaims(e.Site.Spec.Namespace).Get(ctx, seed.PVC, metav1.GetOptions{})
+	if err != nil {
+		return binding, spec.Err(13, "native seed PVC cannot be observed")
+	}
+	cm, err := e.Kube.Client.CoreV1().ConfigMaps(e.Site.Spec.Namespace).Get(ctx, jobName(runID, "manifest-"+seed.ID), metav1.GetOptions{})
+	if err != nil || cm.UID == "" || cm.Immutable == nil || !*cm.Immutable || len(cm.Data) != 1 || cm.Data["files.json"] != string(manifest) || len(cm.BinaryData) != 0 || cm.Annotations["cinderlock.dev/pvc-uid"] != string(pvc.UID) || cm.Labels["cinderlock.dev/run"] != runID || cm.Annotations["cinderlock.dev/asset-digest"] != asset.Digest {
+		return binding, spec.Err(13, "native manifest or original PVC identity differs from the signed seed")
+	}
+	binding = seedVolumeBinding{AssetID: seed.Asset, AssetDigest: asset.Digest, SeedID: seed.ID, SeedDigest: seedDigest, SeedAttempt: intent.Attempt, PVC: seed.PVC, PVCUID: string(pvc.UID), SubPath: seed.ModelSubPath, Manifest: cm.Name, ManifestUID: string(cm.UID), ManifestDigest: spec.Hash(manifest), Verifier: verifier}
+	return binding, e.validateSeedVolumeBinding(ctx, runID, binding, requireComplete)
+}
+
+func (e *Engine) validateFixtureBinding(ctx context.Context, runID string, binding seedVolumeBinding) error {
+	if err := e.validateSeedVolumeBinding(ctx, runID, binding, true); err != nil {
+		return err
+	}
+	return e.fixturePodExclusivity(ctx, runID, binding.PVC)
+}
+
+func (e *Engine) validateSeedVolumeBinding(ctx context.Context, runID string, binding seedVolumeBinding, requireComplete bool) error {
+	if binding.PVCUID == "" || binding.ManifestUID == "" || binding.SeedAttempt < 1 || !seedAssetID.MatchString(binding.AssetID) || !spec.ValidDigest(binding.AssetDigest) || !spec.ValidDigest(binding.ManifestDigest) || requireComplete && binding.Verifier.UID == "" || binding.Verifier.UID != "" && (binding.Verifier.RunID != runID || binding.Verifier.StepID != binding.SeedID || binding.Verifier.Attempt != binding.SeedAttempt || binding.Verifier.Role != "verify-model-"+binding.SeedID) {
+		return spec.Err(13, "native seed provenance is incomplete")
 	}
 	pvc, err := e.Kube.Client.CoreV1().PersistentVolumeClaims(e.Site.Spec.Namespace).Get(ctx, binding.PVC, metav1.GetOptions{})
 	if err != nil || string(pvc.UID) != binding.PVCUID || pvc.DeletionTimestamp != nil || pvc.Annotations["cinderlock.dev/run"] != runID || pvc.Annotations["cinderlock.dev/model-revision"] != binding.AssetDigest || len(pvc.OwnerReferences) > 0 || len(pvc.Spec.AccessModes) != 1 || pvc.Spec.AccessModes[0] != corev1.ReadWriteOnce || pvc.Spec.DataSource != nil || pvc.Spec.DataSourceRef != nil || pvc.Spec.VolumeMode != nil && *pvc.Spec.VolumeMode != corev1.PersistentVolumeFilesystem {
-		return spec.Err(13, "fixture PVC UID, ownership or dedicated filesystem profile changed")
+		return spec.Err(13, "native seed PVC UID, ownership or dedicated filesystem profile changed")
 	}
 	cm, err := e.Kube.Client.CoreV1().ConfigMaps(e.Site.Spec.Namespace).Get(ctx, binding.Manifest, metav1.GetOptions{})
 	if err != nil || string(cm.UID) != binding.ManifestUID || cm.DeletionTimestamp != nil || cm.Immutable == nil || !*cm.Immutable || len(cm.Data) != 1 || spec.Hash([]byte(cm.Data["files.json"])) != binding.ManifestDigest || len(cm.BinaryData) != 0 || cm.Annotations["cinderlock.dev/pvc-uid"] != binding.PVCUID || cm.Annotations["cinderlock.dev/asset-digest"] != binding.AssetDigest || cm.Labels["cinderlock.dev/run"] != runID {
-		return spec.Err(13, "fixture immutable manifest identity changed")
+		return spec.Err(13, "native seed immutable manifest identity changed")
 	}
 	intent, err := e.Store.LatestOperation(ctx, runID, binding.SeedID)
-	if err != nil || intent.State != "complete" || intent.Attempt != binding.SeedAttempt {
-		return spec.Err(13, "fixture seed is no longer the completed admitted attempt")
+	if err != nil || requireComplete && intent.State != "complete" || !requireComplete && !slices.Contains([]string{"complete", "intent", "uncertain", "failed"}, intent.State) || intent.Attempt != binding.SeedAttempt {
+		return spec.Err(13, "native seed is no longer the completed admitted attempt")
 	}
 	var operation spec.Operation
 	if err := spec.Decode(intent.Intent, &operation); err != nil {
@@ -269,28 +319,38 @@ func (e *Engine) validateFixtureBinding(ctx context.Context, runID string, bindi
 	}
 	digest, err := spec.Digest(operation)
 	if err != nil || digest != binding.SeedDigest || operation.Asset != binding.AssetID || operation.PVC != binding.PVC || operation.ModelSubPath != binding.SubPath || operation.Type != "seed" || len(operation.Command) != 0 {
-		return spec.Err(13, "fixture seed provenance changed")
+		return spec.Err(13, "native seed provenance changed")
 	}
 	worker, err := e.operationWorker(ctx, runID, binding.SeedID, binding.SeedAttempt, binding.SeedID)
 	if err != nil {
 		return err
 	}
-	if status, err := e.modelReceiverStatus(ctx, worker); err != nil || status != "complete" {
-		return spec.Err(13, "fixture native receiver is not confirmed complete")
+	if status, err := e.modelReceiverStatus(ctx, worker); err != nil || requireComplete && status != "complete" {
+		return spec.Err(13, "native receiver is not confirmed complete")
 	}
-	stored, err := e.operationWorker(ctx, runID, binding.SeedID, binding.SeedAttempt, binding.Verifier.Role)
-	if err != nil {
-		return err
+	originals := []state.Worker{worker}
+	if binding.Verifier.UID != "" {
+		stored, err := e.operationWorker(ctx, runID, binding.SeedID, binding.SeedAttempt, binding.Verifier.Role)
+		if err != nil {
+			return err
+		}
+		a, _ := spec.Digest(stored)
+		b, _ := spec.Digest(binding.Verifier)
+		if a != b {
+			return spec.Err(13, "native seed original verifier identity changed")
+		}
+		originals = append(originals, stored)
 	}
-	a, _ := spec.Digest(stored)
-	b, _ := spec.Digest(binding.Verifier)
-	if a != b {
-		return spec.Err(13, "fixture original verifier identity changed")
+	for _, original := range originals {
+		job, err := e.Kube.Client.BatchV1().Jobs(e.Site.Spec.Namespace).Get(ctx, original.Name, metav1.GetOptions{})
+		if err != nil || job.DeletionTimestamp != nil {
+			return spec.Err(13, "original native seed worker is unavailable or being deleted")
+		}
+		if status, err := e.inspectWorker(ctx, original); err != nil || requireComplete && status != "complete" {
+			return spec.Err(13, "original native seed worker completion is not confirmed")
+		}
 	}
-	if status, err := e.inspectWorker(ctx, stored); err != nil || status != "complete" {
-		return spec.Err(13, "fixture original signed-manifest verification is not confirmed complete")
-	}
-	return e.fixturePodExclusivity(ctx, runID, binding.PVC)
+	return nil
 }
 
 // Known original receivers may have written the PVC only after becoming
@@ -305,6 +365,15 @@ func (e *Engine) fixturePodExclusivity(ctx context.Context, runID, pvc string) e
 		workers, err = e.Store.Workers(ctx, runID)
 		if err != nil {
 			return err
+		}
+		p, err := e.fixtureRunPlan(ctx, runID)
+		if err != nil {
+			return err
+		}
+		if gitOpsPhase(p) {
+			if err := e.gitOpsUnreferencedClaim(ctx, runID, pvc); err != nil {
+				return err
+			}
 		}
 	}
 	for _, pod := range pods.Items {
@@ -358,7 +427,7 @@ func (e *Engine) fixturePodExclusivity(ctx context.Context, runID, pvc string) e
 	return nil
 }
 
-func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec.Plan, c spec.Check, bindings []fixtureBinding, requireFresh bool) error {
+func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec.Plan, c spec.Check, bindings []seedVolumeBinding, requireFresh bool) error {
 	seeds, err := fixtureSeeds(p, c)
 	if err != nil {
 		return err
@@ -392,7 +461,7 @@ func (e *Engine) validateCheckFixtures(ctx context.Context, runID string, p spec
 	return nil
 }
 
-func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.Check, bindings []fixtureBinding, v *bundle.Verified, beforeStart func() (spec.TargetSnapshot, error)) error {
+func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.Check, bindings []seedVolumeBinding, v *bundle.Verified, beforeStart func() (spec.TargetSnapshot, error)) error {
 	image, err := e.image(v, e.Site.Spec.HelperImage)
 	if err != nil {
 		return err
@@ -422,7 +491,7 @@ func (e *Engine) verifyCheckFixtures(ctx context.Context, runID string, c spec.C
 }
 
 func (e *Engine) mountedFixtureBindings(ctx context.Context, job *batchv1.Job, runID string) error {
-	var bindings []fixtureBinding
+	var bindings []seedVolumeBinding
 	found := false
 	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
 		if env.Name != fixtureEnvironment {
@@ -450,7 +519,7 @@ func (e *Engine) mountedFixtureBindings(ctx context.Context, job *batchv1.Job, r
 	return nil
 }
 
-func appendFixtureVolumes(container *corev1.Container, volumes *[]corev1.Volume, bindings []fixtureBinding) error {
+func appendFixtureVolumes(container *corev1.Container, volumes *[]corev1.Volume, bindings []seedVolumeBinding) error {
 	if len(bindings) == 0 {
 		return nil
 	}
@@ -472,7 +541,7 @@ func appendFixtureVolumes(container *corev1.Container, volumes *[]corev1.Volume,
 	return nil
 }
 
-func fixtureIntentBindings(raw []byte) ([]fixtureBinding, error) {
+func fixtureIntentBindings(raw []byte) ([]seedVolumeBinding, error) {
 	var intent checkIntent
 	if err := spec.Decode(raw, &intent); err != nil {
 		return nil, err

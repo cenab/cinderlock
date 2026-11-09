@@ -49,6 +49,10 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 	if err := e.Store.ConsumeAuthorization(ctx, nonce, record.PlanDigest, runID, p.PolicyDigest, authorizationExpiry(a)); err != nil {
 		return spec.RunResult{}, err
 	}
+	beforeVerification := func() error {
+		_, err := e.executionBoundary(ctx, runID, p, v, policy, a, approved, coord)
+		return err
+	}
 	operations, err := e.Store.Operations(ctx, runID)
 	if err != nil {
 		return spec.RunResult{}, err
@@ -59,6 +63,12 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 		}
 		if journalKind(attempt.Intent) == "check" {
 			if err := e.resumeCheck(ctx, p, attempt); err != nil {
+				return spec.RunResult{}, err
+			}
+			continue
+		}
+		if journalKind(attempt.Intent) == "gitops-model-verification" {
+			if err := e.reconcileGitOpsModelVerification(ctx, p, v, attempt); err != nil {
 				return spec.RunResult{}, err
 			}
 			continue
@@ -87,7 +97,7 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 			if err := coord.check(ctx); err != nil {
 				return spec.RunResult{}, err
 			}
-			before, err := e.currentCheckpoint(ctx, runID, p)
+			before, err := e.currentCheckpoint(ctx, runID, p, v, policy)
 			if err != nil {
 				return spec.RunResult{}, err
 			}
@@ -97,11 +107,11 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 			if _, err = e.authorize(p, policy, a, approved); err != nil {
 				return spec.RunResult{}, err
 			}
-			external, err := e.operation(ctx, p, runID, op, v, policy)
+			external, err := e.operation(ctx, p, runID, op, v, policy, beforeVerification)
 			if err != nil {
 				return spec.RunResult{}, err
 			}
-			if _, err = e.advanceCheckpoint(ctx, runID, p, op, before); err != nil {
+			if _, err = e.advanceCheckpoint(ctx, runID, p, v, policy, op, before); err != nil {
 				return spec.RunResult{}, err
 			}
 			step := spec.StepResult{ID: op.ID, Attempt: attempt.Attempt, Status: "pass", FinishedAt: spec.Now(), ExternalID: external}
@@ -122,12 +132,29 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 				return spec.RunResult{}, err
 			}
 			if status == "complete" {
-				if _, err := e.verifySeed(ctx, runID, op, v); err != nil {
+				if _, err := e.verifySeed(ctx, runID, op, v, beforeVerification); err != nil {
 					return spec.RunResult{}, err
 				}
 			}
-			if err := e.Store.Complete(ctx, attempt, status, map[string]string{"reconciled": "original native Job and bound receiver Pod terminated; complete files retained"}); err != nil {
+			var evidence any = map[string]string{"reconciled": "original native Job and bound receiver Pod terminated; complete files retained"}
+			if gitOpsPhase(p) {
+				worker, err := e.operationWorker(ctx, runID, op.ID, attempt.Attempt, op.ID)
+				if err != nil {
+					return spec.RunResult{}, err
+				}
+				step := spec.StepResult{ID: op.ID, Attempt: attempt.Attempt, Status: "fail", ExternalID: worker.Name, FinishedAt: spec.Now()}
+				if status == "complete" {
+					step.Status = "pass"
+				}
+				evidence = step
+			}
+			if err := e.Store.Complete(ctx, attempt, status, evidence); err != nil {
 				return spec.RunResult{}, err
+			}
+			if gitOpsPhase(p) {
+				if err := e.clusterRecord(ctx, runID, record.PlanDigest, status, evidence); err != nil {
+					return spec.RunResult{}, err
+				}
 			}
 			continue
 		}
@@ -146,7 +173,7 @@ func (e *Engine) Resume(ctx context.Context, runID string, v *bundle.Verified, p
 				}
 			}
 			if op.Type == "seed" {
-				if _, err := e.verifySeed(ctx, runID, op, v); err != nil {
+				if _, err := e.verifySeed(ctx, runID, op, v, beforeVerification); err != nil {
 					return spec.RunResult{}, err
 				}
 			}

@@ -98,7 +98,7 @@ func TestSeedSuccessRequiresSeparateReadOnlySignedManifestJob(t *testing.T) {
 	if _, err := e.Store.Intent(context.Background(), "run-model", operation.ID, operation, jobName("run-model", operation.ID)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.seedPVC(context.Background(), "run-model", operation, verified); err != nil {
+	if _, err := e.seedPVC(context.Background(), "run-model", operation, verified, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(jobs) != 2 {
@@ -136,7 +136,7 @@ func TestSeedSuccessRequiresSeparateReadOnlySignedManifestJob(t *testing.T) {
 	if _, err := client.CoreV1().ConfigMaps("test").Update(context.Background(), manifest, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.verifySeed(context.Background(), "run-model", operation, verified); err == nil {
+	if _, err := e.verifySeed(context.Background(), "run-model", operation, verified, nil); err == nil {
 		t.Fatal("changed manifest trusted on resume")
 	}
 }
@@ -146,7 +146,7 @@ func TestMissingModelVerifierBlocksBeforeVolumeCreation(t *testing.T) {
 	_, verified := fixturePlan(t, e, policy)
 	verified.Index.Lock.Assets = []spec.LockedAsset{{ID: "model", Digest: spec.Hash([]byte("x")), Files: []spec.FileRecord{{Path: "model", Digest: spec.Hash([]byte("x")), Size: 1}}}}
 	client.ClearActions()
-	if _, err := e.seedPVC(context.Background(), "run", spec.Operation{Asset: "model", PVC: "model", StorageBytes: 1}, verified); err == nil {
+	if _, err := e.seedPVC(context.Background(), "run", spec.Operation{Asset: "model", PVC: "model", StorageBytes: 1}, verified, nil); err == nil {
 		t.Fatal("seed accepted missing verifier")
 	}
 	for _, action := range client.Actions() {

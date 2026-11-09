@@ -50,7 +50,7 @@ func TestWorkerIdentityRejectsReplacementAndChangedRecipe(t *testing.T) {
 	e, client, policy, p, v, intent := workerFixture(t)
 	completeWorkers(client)
 	operation := p.Operations[0]
-	name, err := e.operation(context.Background(), p, "worker-run", operation, v, policy)
+	name, err := e.operation(context.Background(), p, "worker-run", operation, v, policy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestResumeDoesNotTrustReplacementMigrationJob(t *testing.T) {
 			e, client, policy, p, v, intent := workerFixture(t)
 			completeWorkers(client)
 			ctx := context.Background()
-			name, err := e.operation(ctx, p, "worker-run", p.Operations[0], v, policy)
+			name, err := e.operation(ctx, p, "worker-run", p.Operations[0], v, policy, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -187,7 +187,7 @@ func TestAmbiguousJobCreationBlocksRecovery(t *testing.T) {
 		return true, nil, errors.New("connection reset after server acceptance")
 	})
 	operation := p.Operations[0]
-	if _, err := e.operation(context.Background(), p, "worker-run", operation, v, policy); spec.ExitCode(err) != 13 {
+	if _, err := e.operation(context.Background(), p, "worker-run", operation, v, policy, nil); spec.ExitCode(err) != 13 {
 		t.Fatalf("ambiguous create recorded as definite failure: %v", err)
 	}
 	if err := e.Store.Complete(context.Background(), intent, "uncertain", nil); err != nil {

@@ -130,7 +130,7 @@ func fixtureAcceptanceRun(t *testing.T, kind string) (*Engine, *fake.Clientset, 
 		_, err = client.BatchV1().Jobs("test").UpdateStatus(ctx, job, metav1.UpdateOptions{})
 		return err
 	}
-	if _, err := e.seedPVC(ctx, "fixture-run", op, v); err != nil {
+	if _, err := e.seedPVC(ctx, "fixture-run", op, v, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.Store.Complete(ctx, intent, "complete", map[string]string{"state": "verified"}); err != nil {

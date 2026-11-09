@@ -38,7 +38,7 @@ func TestUnknownImportAssetCannotReportSuccess(t *testing.T) {
 	p, verified := fixturePlan(t, e, policy)
 	e.Site.Spec.Registry = "registry.internal/app"
 	verified.Index.Lock.Assets = []spec.LockedAsset{{ID: "runner", Type: "image", Digest: "sha256:" + strings.Repeat("a", 64)}}
-	_, err := e.operation(context.Background(), p, "run", spec.Operation{ID: "import", Type: "import", Asset: "not-in-bundle"}, verified, policy)
+	_, err := e.operation(context.Background(), p, "run", spec.Operation{ID: "import", Type: "import", Asset: "not-in-bundle"}, verified, policy, nil)
 	if spec.ExitCode(err) != 10 {
 		t.Fatalf("empty import target selection falsely succeeded: %v", err)
 	}

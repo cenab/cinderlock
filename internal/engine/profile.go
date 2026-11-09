@@ -213,7 +213,7 @@ func (e *Engine) secretFindings(p spec.Plan, snapshot spec.TargetSnapshot, v *bu
 		add(check.SecretRefs)
 	}
 	if p.Kind != "RetirementPlan" {
-		if p.Kind != "ArtifactsPlan" && v.Index.Lock.Release.Spec.License != nil {
+		if p.Kind != "ArtifactsPlan" && p.Kind != "GitOpsPreparePlan" && v.Index.Lock.Release.Spec.License != nil {
 			add([]string{v.Index.Lock.Release.Spec.License.SecretRef})
 		}
 		if e.Site.Spec.RegistryAuthRef != "" {
