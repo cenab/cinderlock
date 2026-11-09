@@ -1,131 +1,90 @@
 # Cinderlock implementation
 
-Build the open-source Go release engine described by the product design, with
-customer-controlled offline delivery, target-bound plans, application acceptance,
-and explicit recovery. Cinderlock owns these contracts; Zarf is a comparison
-baseline, not the executor. The current request authorizes implementation of the
-whole feature set. It does not establish a customer pilot or hardware support.
+Cinderlock is the Go release engine for customer-operated offline delivery,
+application acceptance, upgrades, and explicit recovery. The bounded mechanisms
+in the [feature audit](../../docs/features.md) are implemented. Qualification
+applies only to the source, environment, and workflows named in the
+[qualification record](../../docs/qualification.md).
 
 ## Next Agent Prompt
 
-Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
-using the normal intent, worker, coordination, approval and recovery owners:
+Check the current publication's [Check workflow](../../.github/workflows/check.yml)
+through completion and address any failure before expanding support. Local
+checks and the persistent GitOps workflow for `1587928` passed. If publication
+checks are green, the next qualification is the user's deferred NVIDIA cluster;
+do not ask for that hardware again, rent an instance, or substitute CPU results.
 
-1. Finish q011's live persistent workflow, preserving its frozen phase binaries.
-   Installation passed its required workflows. V2 quiesce/backup/migration
-   completed with an active `awaiting_adoption` gate; the original Application
-   adopted C2 and post-adoption acceptance passed after an explicitly authorized
-   same-run resume. All original worker and volume identities were retained.
-   V3 backup and source adoption completed. Deliberate document deletion failed
-   persistence/query/numeric checks, retained HTTP 404 evidence, and left the
-   accepted floor at 2. Its original result bytes are preserved. Recovery
-   planning with `cac2e73` rejected an original model-verification reader before
-   any recovery work. Finish the shared historical-consumer fix and gates,
-   then select a separately frozen recovery executable and fresh plan/approval.
-   Retain the rejected inputs; refreshed narrow lab credentials require new
-   bindings. The fixture opts into maintenance readiness and Pod replacement.
-2. Finish combined release
-   gates, feature documentation and publication. Recorded GitOps kinds,
-   check-only policy evaluation, predecessor agreement and waiting notices
-   have regression tests and actual-journal CLI/HTTP comparison, policy and
-   local-notice proof;
-   catalog review never grants engine authority. Preserve unavailable worker
-   reads as unverified evidence rather than claiming a changed recipe.
+Use the existing separately authorized GPU probe, pinned artifacts, target-bound
+plan, application workflows, and recovery path when that cluster is available.
+Keep real inference, GPU allocation, and production restore unqualified until
+actual receipts establish their scope. The current synthetic app is a lexical
+retriever with SQLite, not an LLM.
 
-| Source | Completed evidence and boundary | Private records |
-| --- | --- | --- |
-| `0a73b09` | Hosted core Go and CPU transition/recovery baseline passed. | `.local/hosted-ci-42455956767/` |
-| `8db0077` | Native CPU install, explicitly resumed upgrade, actual document loss and separate restore passed; endpoint/numeric Jobs included. All 18 original upgrade Jobs and eight volume/manifest bindings survived resume. | `.local/qualification-005/` |
-| `f8bf623` | Real Argo v3.6.1 source/resource/SSA observation, five denial controls and restored original UIDs passed. Application acceptance remains unestablished. | `.local/argocd-profile/` |
-| `34937f5` | Fresh unit/race/vet, actual PostgreSQL, source scan, static Linux builds, full source/toolchain/Helm/legal export and offline compilation passed. Binaries were not run by build checks. | `.local/distribution-34937f5/` |
-| Published `edee42d` | Hosted run 42468205931 passed its Go job, install, upgrade and expected data-loss failure. The overall 30-minute Kubernetes budget cancelled before recovery proof; the next run uses 45 minutes with unchanged CLI/worker deadlines and assertions. | `.local/hosted-ci-42468205931/` |
-| Published `3dcbb3f` | Replacement hosted run 42471082512 passed build/security/distribution and all four CPU outcomes, including separate recovery and retained original failure. | `.local/hosted-ci-42471082512/` |
-| `c444900` | Authorized native preparation/check contracts pass unit/race/CLI and the live CPU model/stateless workflow, including five required checks and original worker identity readback. | `.local/argocd-workflow/q009/`, `.local/gitops-qualified-c444900/` |
-| `cac2e73` | Data phases pass local unit/race/vet and consumer/approval/handoff regressions. Hosted Go and native Kubernetes jobs passed; downloaded receipts verify install/upgrade/intended failure/separate recovery. The live GitOps data workflow remains in progress. | `.local/gitops-qualified-cac2e73/`, `.local/hosted-ci-42597359117/`, `.local/argocd-workflow/q011/` |
+The private retained records for the latest work are:
 
-The [qualification record](../../docs/qualification.md) owns detailed limits.
-Prerequisite duplication was removed while retaining actual-start, post-wait
-and final guards; no matched live speedup is claimed. Source size audit lists
-zero files over 8,000 tokens, without a hook or added dependency.
+| Source and scope | Private records |
+| --- | --- |
+| `cac2e73`: GitOps persistent install, upgrade, and actual document-loss failure | `.local/argocd-workflow/q011/`, `.local/gitops-qualified-cac2e73/` |
+| `1587928`: separately authorized same-source restore; original result, worker/receiver/claim readback, current authority, and accepted-floor checks | `.local/argocd-workflow/q011/`, `.local/gitops-recovery-qualified-1587928/` |
+| `ff656b5`: actual-journal CLI and catalog HTTP comparisons, policy controls, and local waiting notice | `.local/catalog-qualified-ff656b5/` |
+| `91b3ca5`: completed hosted native CPU install/upgrade/failure/recovery and verified artifact | `.local/hosted-ci-42612272505/` |
 
-The private q007 persistent draft retains its original procedures. Prepare a
-fresh execution from those inputs, preserving actual restart/persistence and
-restore behavior without introducing another desired-state writer. The
-separate q009 model/stateless workflow passed with a
-frozen `c444900` CLI and the protocol-compatible `8db0077` helper; original q006,
-q008 and native005 evidence stays unchanged. The user will supply NVIDIA
-hardware later; keep that qualification open.
+Earlier native, model/stateless, controller-denial, interrupted-run and rejected
+input records stay unchanged. Detailed results and limits belong in the
+qualification record rather than another handoff timeline. A frozen earlier
+binary never qualifies a later source automatically.
 
-Preserve q010's rejected model-preparation plan: its fixture retained a
-Helm-only timeout on a source marker and started no model worker. Q011 uses
-the corrected inert marker and retains its first conditional Argo sync
-rejection followed by an explicit fresh request with the same original UID.
+The next contributor must preserve original workers, receiver Pods, volume and
+manifest identities, source contracts, failed result bytes, and all rejected
+attempts. Short-lived credentials can rotate only through fresh current bindings,
+plans, and authorization; historical evidence never grants current permission.
+Never rerun a completed private harness blindly or edit its signed inputs to
+force a pass.
 
-Use explicit kubeconfig/context paths on every Kubernetes/Helm invocation.
-Never use the workstation's default production context. Temporary credentials,
-clusters, registry data, prompts, and test receipts belong in ignored `.local/`.
-Do not publish them. Shared contracts live in `internal/spec`; change their
-producers, verifiers, CLI, tests, and docs together. Update this handoff before
-ending an implementation pass or context handoff.
+Every Kubernetes/Helm invocation must select its kubeconfig and context explicitly.
+Use only the independently owned disposable lab; never the workstation's default
+production context. Local credentials, keys, state, images, scripts, and receipts
+stay in ignored `.local/`. Do not publish them.
 
-## Slice graph and global work
+## Delivery status
 
-Each slice owns a verifiable contract. Most implementation is already present;
-the remaining unchecked work is a release gate, not permission to stop.
+The implementation includes trusted input and artifact delivery, target inspection,
+controlled execution and recovery, the reference transition, local evidence and
+catalog, and the listed bounded extensions. Source and licenses remain in their
+existing owners; no second deployment engine or shadow schema is introduced.
 
-| Slice | Seam and runnable evidence | State |
-| --- | --- | --- |
-| 01: trusted input | `internal/spec`; strict contracts, canonical bytes, exact field names, required application checks | Merged strict script/prerequisite and observation contracts pass local checks |
-| 02: artifact delivery | `internal/bundle`, `internal/transfer`; signed closure, OCI, multipart, differential, inventory and cache references | Core delivery passes; new GitOps image-staging/proposal package checks pass |
-| 03: target and plans | `internal/engine`; identity/configuration bindings, permission, admission, and unsupported-state findings | Unit/fault and real CLI integration pass for the recorded CPU profile |
-| 04: controlled execution | `internal/state`, `internal/engine`; intent, coordination, reconciliation, upgrades/recovery | Unit/fault tests and live synthetic upgrade/recovery pass; broader interruption/storage qualification remains |
-| 05: reference transition | `examples/document-qa`; synthetic HTTP/SQLite ingestion, persistence, migration and restore | App/chart tests and real kind transition pass |
-| 06: local evidence/catalog | `internal/report`, `internal/support`, `internal/catalog`; scoped evidence and organization service | SQLite/PostgreSQL, OIDC, scope, CLI/API, and visual checks pass; remaining policy/integration scope is explicit |
-| 07: extensions | CLI/API seams for GPU probes, GitOps, retirement, groups, source admission and CI | Implemented subsets have tests; remaining mechanisms and profile qualification stay open |
-| 08: release quality | Docs, notices, shape, offline build, scanning, distribution and whole-tree checks | Published core and hosted CI pass; combined new feature qualification remains |
+- [x] Verify native CPU install, upgrade, required workflows, actual failure, and recovery.
+- [x] Verify GitOps staging, model preparation, independent source adoption, persistent upgrade, failure, and separate restore through the public CLI.
+- [x] Exercise recorded GitOps subjects, comparisons, restrictive policy, and local notices through CLI/HTTP entry points.
+- [x] Reconcile the original feature list with code, tests, and explicit qualification limits.
+- [x] Review shape, error/retry boundaries, decisions, reports, and source hygiene.
+- [x] Verify source/vendor/Go/Helm/legal distribution and offline compilation for the named source.
+- [ ] Qualify NVIDIA inference and allocation when the user provides the cluster.
+- [ ] Close/archive the qualification work after the remaining applicable profile gates are resolved.
 
-Follow dependency order: 01 → 02 → 03 → 04 → 05; 06 can progress independently
-after 01. Complete 07 against the established seams, then 08 against the complete
-tree. Re-slice a failing contract before broadening an implementation patch.
-
-- [x] Run the real baseline/install → upgrade → required workflows → recovery.
-- [ ] Wire and test every implemented extension through its public CLI/API.
-- [x] Reconcile every original feature with code, proof, and qualification limits.
-- [x] Review shape, diff, tests, performance, decisions, and user-visible reports.
-- [x] Inspect real screenshots; retain honest comparison/critique evidence.
-- [ ] Finish documentation, dependency notices, CI and clean offline builds.
-- [ ] Inspect the final tracked tree; no local secrets or disposable artifacts.
-- [ ] Commit clean passes and publish only the intended source/distribution.
-- [ ] Close/archive this spec only when no implementation or applicable gate remains.
+Hosted checks remain authoritative for their exact commit. Follow the current
+run after publication; an older green run cannot establish that a changed tree
+passed. Preserve failures, skips, and unavailable capabilities as evidence.
 
 ## Invariants
 
 A bundle key cannot authorize itself. A release signature cannot grant customer
-execution approval. A plan binds the signed recipe, policy, site source bytes,
-target and starting state; edits require a new plan. A timeout is not proof that
-a migration did not commit. Lease expiry is not fencing. Missing required
-workflows never pass. Recovery of a previous state is not success of the failed
-upgrade. Resource retention is not proof of data recovery or secure erasure.
+execution approval. Plans bind signed recipes, policy, Site source bytes, target,
+and starting state. New work rechecks current authority at its actual boundary.
+A timeout is not proof that a migration did not commit. Lease expiry is not
+fencing, and a canceled read cannot establish changed target facts.
 
-The reference application is deliberately synthetic. CPU/kind checks cannot
-qualify NVIDIA inference, GPU sharing, physical isolation, or a customer's
-production data. Preserve those distinctions in code, reports, and documentation.
-Unimplemented operations must fail explicitly; do not add no-op success paths.
+Missing required workflows never pass. Waiting for customer source adoption
+retains the active application gate. A successor uses an exact recorded handoff;
+unknown consumers or lost original identities require reconciliation. Recovery
+of a prior state is distinct from acceptance of the failed attempt. Retaining
+an object UID does not prove intact data, secure erasure, or storage isolation.
 
-## Verification and visual gates
+The external controller owns desired state. Cinderlock stages artifacts, proposes
+inert source changes, and executes separately authorized procedures and tests.
+It does not silently commit, sync, or become a second Helm writer. Read-only
+model provenance and mutable-data procedures retain their separate contracts.
 
-Run focused behavior tests first, then the merged tree's unit/race/vet and live
-integration gates. Pin failing behavior before a fix and retain the regression.
-Never weaken a gate merely to obtain green output. Use real CLI/HTTP entry points
-where possible; adapters/fake clients isolate uncertainty rather than simulate
-a successful deployment.
-
-For report/catalog visual work, inspect the actual rendered route with synthetic
-data. Run screenshot-critique after the final screenshot. When changing an
-existing visual surface, save its real baseline first, run compare-screenshots
-on matched framing, and explain any intentional difference. A generated concept
-or nonblank screenshot is not proof of a working application or accessibility.
-
-The decisions ledger belongs in [decisions.md](decisions.md). Keep technical
-choices and unresolved customer-specific defaults separate from test receipts.
-No user, operator, or customer approval is implied by a recorded recommendation.
+Shared contracts live in `internal/spec`; producers, verifiers, CLI, tests, and
+docs change together. The [mutable-data rationale](mutable-gitops.md) and
+[decisions ledger](decisions.md) retain the choices behind those boundaries.

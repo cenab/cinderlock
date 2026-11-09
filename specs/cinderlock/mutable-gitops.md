@@ -1,9 +1,10 @@
 # Mutable GitOps procedures
 
-The data mechanism and its public commands have local execution and fault
-tests. Live persistent-data qualification and merged release gates remain in
-progress. The model/stateless profile is separately qualified; data contracts
-must not inherit that result.
+The data mechanism and public commands have execution and fault tests. The
+[qualification record](../../docs/qualification.md) separately names completed
+persistent upgrade, required-workflow failure, and same-source restore through
+real Argo. Model/stateless results and other sources do not qualify data
+contracts automatically.
 
 A signed `GitOps.data` declaration names the mutable PVC and the exact quiesce,
 backup and resume operations in the existing signed DAG. `Recovery.gitOpsData`
@@ -64,15 +65,18 @@ previous workers must be terminal; a current authorized worker remains bound
 to its original UID and recipe. No custom-controller, storage-fencing, future
 writer exclusion, physical isolation or production restore guarantee is implied.
 
-## Gates still required
+## Evidence and qualification boundaries
 
-- Complete reviewed unit/race/vet gates. Public pre/check/recovery execution,
-  source/target render separation, role selection, policy rotation, failed
-  checks, replaced claims/workers, queued writers, expiry, interrupted handoff
-  and initial finalization have local regression tests. Consumer tests include
-  actual controlled Pod recipes rather than an empty Pod inventory alone.
-- Run a fresh persistent CPU workflow from q007's retained input and separately
-  authorized synthetic
-  restore, retaining the original failed release and every original worker.
-- Complete merged unit/race/vet, distribution and hosted checks. NVIDIA hardware
-  remains deferred by the user.
+The public pre/check/recovery paths, source/target render separation, authority
+rotation, failed checks, original worker/claim identities, queued writers,
+expiry, interrupted handoff, and initial finalization have regression coverage.
+Retained model readers share the data-phase consumer proof; unknown completed
+Jobs remain blocked. Current target identity is resolved once per inventory,
+not once again for every retained Job.
+
+The named live CPU profile preserves its original failed result and separately
+verifies restoration without re-ingestion. Source exports retain dependencies,
+toolchains, and legal material, with compilation under disabled Go acquisition.
+Hosted checks and hardware qualification remain tied to their exact source and
+profile. NVIDIA hardware is deferred by the user; no CPU result substitutes for
+GPU inference, allocation, production restore, or physical isolation.

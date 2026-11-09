@@ -32,7 +32,7 @@ Every Kubernetes operation selected the disposable kubeconfig and context.
 
 | Transition | Observed result |
 | --- | --- |
-| Initial install | Passed six required checks: internal registry HTTP response, health, ingestion, query, persistence after restart, and measured numeric observations. |
+| Initial install | Passed six required checks: internal registry HTTP response, health, ingestion, query, persistence, and measured numeric observations. Ingestion follows the initial restart; this phase alone does not prove document survival across that restart. |
 | Schema 1 → 2 upgrade | Passed native model/fixture staging, quiescence, backup, migration, deployment, restart, and six required checks after explicit resume. Persistence ran before ingestion. The optional zero-allocation-budget check retained its intended failure without failing the required workflows. |
 | Deliberate document deletion | All operation steps passed; persistence, query, and numeric fixture assertions failed. The original Job log reported HTTP 404. The release remained unaccepted. |
 | Separate recovery | A separately authorized run restored the synthetic backup, restarted the service, and passed all five declared checks. The failed release's original record remained unaccepted. |
@@ -90,6 +90,79 @@ or production recovery. Storage capacities remain explicitly synthetic
 assertions. Full inputs, original worker and volume bindings, results and an
 evidence hash index remain private under `.local/argocd-workflow/q009/`.
 
+## Authorized GitOps persistent data workflow
+
+On November 9, 2026 UTC, the synthetic persistent workflow used frozen operator
+source `cac2e73376ffdc8694a712c46162802a3dba00ae` for installation, upgrade,
+and deliberate document loss. Its executable SHA-256 is
+`79f1ecf6ad984065be7db93f3b32a90b3068fb0130b43590eed5f5a7b3cfec04`.
+Separately authorized same-source recovery used frozen source
+`15879283a15818e914017369c7035dd54c5b4003`, executable SHA-256
+`576b1fb149dc80586599330e9f1f66c211b51c8199242aed48950258b103fb03`.
+The sources and receipts remain distinct; this is not a claim that one earlier
+executable qualifies every later change.
+
+The workload used real Argo CD v3.6.1, a separately provisioned persistent
+SQLite claim, and freshly prepared model claims in the same disposable Linux
+ARM64 environment. Its locked synthetic application image is
+`sha256:31c191f974f534412fb0ae17adb5c17ab86eb846d8c4ee88be2fc468a3d4e857`.
+The fixture explicitly opts into maintenance readiness during its known
+quiesced schema transition. Signed operational Jobs perform guarded Pod
+replacement without changing Deployment, Git, Helm, or Argo desired state.
+A separate lab harness applies accepted source changes and requests sync.
+The CLI does not commit Git changes or request Argo sync.
+
+| Phase | Observed result |
+| --- | --- |
+| Initial data installation | Image/model preparation, separate source adoption, and six required checks passed. The initial restart precedes ingestion, so this phase alone does not prove document survival across restart. |
+| Schema 1 → 2 upgrade | Quiesce, backup, and migration completed while the old source remained selected. `awaiting_adoption` retained the active gate and unestablished acceptance. After separate source adoption, persistence ran before ingestion and passed after restart. All six required checks passed; the optional negative numeric budget remained a visible failure. |
+| Deliberate document loss | The third source was adopted, and the signed procedure actually deleted the synthetic document. Persistence, query, and numeric assertions failed; the original persistence worker logged HTTP 404. The accepted floor stayed at release 2. |
+| Separate data recovery | A fresh plan and authorization restored `before-v3.sqlite`, resumed writes, restarted the application, and passed all five required checks. No ingestion step repopulated the document. The original failed result remained byte-for-byte unchanged, and only successful recovery advanced the accepted floor to release 3. |
+
+The upgrade's initial invocation reached the default 15-minute overall budget.
+Its read failure misleadingly described a changed fixture worker. Inspection
+matched all fifteen original workers; a fresh authorization and explicit
+18-minute same-run resume completed acceptance while retaining those workers
+and all five existing claims. Later source separates unavailable observations
+from confirmed incompatibility. Completed work was not replaced to force a pass.
+
+The original recovery planner then rejected a retained original model reader
+before starting recovery. The regression reproduced that rejection. The recovery
+source shares the existing data-phase worker proof with model consumers while
+retaining exact plan/target/claim/worker identity, terminal-state, and read-only
+mount checks. Unknown pending and completed consumers remain blocked. The
+rejected inputs and original binaries remain in the evidence. Narrow short-lived
+lab credentials were refreshed before the new plan and authorization; the
+original failed result and source inputs were not rewritten.
+
+The recovery uses an explicit 18-minute local wait with unchanged worker
+deadlines and functional assertions. It retains the same adopted source commit,
+`81a4d89d9889bf30c61899f8dc447b9f2a95ccb8`, original Application identity,
+and mutable data claim. Final readback matched all 76 recorded Job UIDs,
+recipes, and mounted provenance, plus all seven native receiver Pod identities.
+These include the separately created recovery workers. All seven claims that
+existed before recovery retained their UIDs and backing volume names. Every
+phase was inactive at final readback.
+
+Public evidence-subject and comparison commands consumed the actual journal.
+The catalog HTTP comparison preserved failed and recovered acceptance and the
+recovery predecessor. Its required-query policy rejected the failed observation
+and satisfied the recovered one. A waiting-state notice remained local with
+acceptance unestablished. These are recorded observations, not engine authority.
+
+The fixed helper retained its independently pinned image; helper implementation,
+shared contract, and module-source comparisons support only protocol continuity,
+not whole-executable equivalence. Private inputs, rejected and completed attempts,
+original failure bytes, worker/claim readback, and report material remain under
+`.local/argocd-workflow/q011/`. Catalog receipts remain under
+`.local/catalog-qualified-ff656b5/`.
+
+This is a synthetic SQLite test-copy restore and deterministic lexical retrieval,
+not LLM/GPU inference, production backup qualification, cross-source restoration,
+or a storage fence. Remote capacities remain synthetic assertions. Neither the
+lab nor the CLI established physical network isolation or fresh-node pulls.
+The results cover only these named phase binaries and declared workflows.
+
 ## Bounded Argo controller observation
 
 On November 8, 2026 UTC, source `f8bf623` produced `ready: true` against a real
@@ -102,9 +175,8 @@ original proposal base; the customer's accepted commit was bound separately.
 An earlier manual lab sync used client-side apply and was correctly rejected.
 The lab operator then explicitly requested server-side apply; Cinderlock did
 not create the Application or request that sync. The resulting observation
-records `applicationAcceptance: not_established`. Model preparation and
-application workflows have the separate qualification below; mutable GitOps
-data procedures and recovery remain unfinished.
+records `applicationAcceptance: not_established`. Model preparation, application workflows, and mutable-data recovery have
+the separately scoped qualifications above.
 This observation does not qualify other Argo versions, Flux, or production use.
 Use the [Argo input guide](argocd-qualification.md) for the preparation boundary.
 
@@ -120,11 +192,20 @@ resource UIDs. Private commands, observations and digest inventory remain under
 
 ## Build and protocol checks
 
-Whole-tree unit tests, race tests, vet, and formatting checks passed. PostgreSQL
-tests used an actual disposable local database. Separate fault-injection tests
+Whole-tree unit tests, affected-package race tests, vet, and formatting checks
+passed. PostgreSQL tests used an actual disposable local database. Separate
+fault-injection tests
 cover lost responses, original worker and volume identities, replacement
 objects, interrupted streams, retained files, replay, and explicit resume.
 These tests don't establish crash durability or production storage behavior.
+
+Source `1587928` passed `make check`, race checks for engine/state/CLI/spec,
+actual PostgreSQL catalog checks, the source vulnerability scan, static Linux
+AMD64/ARM64 builds, and full source/vendor/Go/Helm/legal export verification and
+offline compilation. The fixed build output was not executed by compilation.
+Private build identities and receipts remain under
+`.local/gitops-recovery-qualified-1587928/`. Its real GitOps recovery result
+is separately recorded above.
 
 Linux AMD64 and ARM64 executables compiled with CGo disabled and were inspected
 as statically linked ELF files. Cross-compilation alone doesn't qualify their
@@ -200,9 +281,26 @@ passed its build, race, scan, integration-input, patched-Helm, and offline
 distribution gates. Private receipts remain under
 `.local/hosted-ci-42586550869/`.
 
-That hosted fixture exercises native CPU delivery and recovery. The separately
-scoped local qualification above covers the live `c444900` model/check phases.
-Neither result qualifies later mutable-data code automatically.
+[GitHub run 42597359117](https://github.com/cenab/cinderlock/actions/runs/42597359117)
+passed both jobs for `cac2e73`. Its downloaded artifact matches GitHub's declared
+SHA-256, and exact result receipts show native installation, upgrade, intended
+required-check failure, and separate recovery. The original failure remains
+unaccepted and is named by recovery. Private receipts remain under
+`.local/hosted-ci-42597359117/`.
+
+[GitHub run 42612272505](https://github.com/cenab/cinderlock/actions/runs/42612272505)
+passed both jobs for `91b3ca5`. Downloaded receipts were verified against artifact
+SHA-256 `12c0fbe4970b348348a81f313fb1451804183e53e40355fe5c410679bec521a2`.
+They show the same four native CPU outcomes, all required positive checks, and
+the visible optional negative numeric result. The recovered result names the
+exact unaccepted failed run. Build, race, PostgreSQL, scanning, fixture/chart,
+source/toolchain/legal distribution, and offline compilation steps passed.
+Private receipts remain under `.local/hosted-ci-42612272505/`.
+
+These hosted fixtures exercise native CPU delivery and recovery. The separately
+scoped local qualifications above cover model/check and mutable-data GitOps
+phases. No earlier run qualifies a later source automatically; inspect the
+current publication's exact workflow run before relying on its hosted status.
 
 ## Reproduce and extend the evidence
 
