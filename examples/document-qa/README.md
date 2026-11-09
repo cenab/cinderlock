@@ -75,6 +75,26 @@ the same transaction as the schema/data change. Repeating the same declared
 transition validates the target state and ledger. An absent or conflicting
 commit does not reconcile successfully.
 
+The GitOps data rehearsal has a stricter continuity requirement: the old
+Deployment must stay healthy after migration while the customer adopts its
+successor. For that synthetic profile only, `serve --maintenance-ready` or
+`MAINTENANCE_READY=1` keeps the quiesced schema-1 server's `/health` response
+healthy after the known schema-2 migration. Normal document and query operations
+still return unavailable until maintenance ends and the serving schema matches.
+The default profile is unchanged. This opt-in models application compatibility
+during maintenance; it does not relax the engine's controller readiness checks
+or establish a general compatibility guarantee.
+
+The persistent GitOps [fixture recipes](../../tests/integration/gitops_data_inputs.py)
+retain the native quiesce, backup, migration, resume, actual document deletion,
+and v3 restore commands. Their operational restart is a signed Job that deletes
+one exact original Pod and waits for its ready controlled replacement, using
+an explicitly injected short-lived token and namespace-scoped API permissions.
+It does not alter the Deployment, Helm history, or Git/Argo source. V1/v2 retain
+their restart-based repair, surrounded by quiesce, read-only database integrity
+validation, and resume procedures. Those repairs do not restore missing data.
+The rehearsal's actual backup restoration is the separate v3 procedure.
+
 Backups require quiescence and preserve the database instance identity, schema,
 content digest, and operation ID. An existing path from another operation is
 rejected. New Cinderlock runs need a new backup path when prior backups remain.

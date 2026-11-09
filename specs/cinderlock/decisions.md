@@ -499,3 +499,30 @@ mechanism. Passing a Pod body to a whole-resource comparison would crash or
 misinterpret resource fields; another independent list of ignored defaults
 would drift. The fixed worker's digest envelope and normalization remain
 unchanged, preserving the existing helper protocol.
+
+### Model maintenance compatibility explicitly in the GitOps fixture
+
+**Verdict:** sound · **Confidence:** medium. **When:** persistent rehearsal inputs.
+
+The native fixture's old server becomes unhealthy when its database migrates,
+before the new server is installed. The bounded GitOps data profile requires
+the controller to stay healthy across that interval. Its new synthetic fixture
+explicitly opts into maintenance readiness for only the known schema-1 server
+observing a quiesced schema-2 database. Document/query operations remain blocked
+and ordinary schema mismatch remains unhealthy. The default native behavior
+and frozen receipts remain unchanged. The plan did not specify how the sample
+application demonstrates this compatibility requirement. Changing the fixture
+explicitly is preferable to weakening the engine's source/readiness checks;
+the new image and live run need independent evidence.
+
+The same rehearsal replaces native desired-state restart operations with
+signed operational Jobs. An explicit short-lived token permits Pod operations
+only in the fixture namespace. The script pins Deployment/ReplicaSet ownership,
+deletes one original Pod with UID/resourceVersion preconditions, and waits for
+a new ready controlled Pod. It cannot patch a Deployment or sync a controller.
+This preserves actual restart/persistence testing without introducing another
+desired-state writer. Its credentials and narrow lab API grants are separate
+operator prerequisites, not authority granted by the bundle. V1/v2 retain
+restart-based repair with an explicit write barrier, read-only integrity check,
+and resume procedure. They do not restore missing data. The live failure/recovery
+rehearsal selects v3's actual backup restoration.

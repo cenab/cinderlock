@@ -266,7 +266,7 @@ def seed(source, destination):
     return revision
 
 
-def make_handler(path, model_dir, version, required_schema):
+def make_handler(path, model_dir, version, required_schema, maintenance_ready=False):
     revision = models(model_dir)
 
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -294,7 +294,8 @@ def make_handler(path, model_dir, version, required_schema):
                     paused = metadata(db, "maintenance") == "1"
                     ready = current == required_schema
                     if route.path == "/health":
-                        return self.respond(200 if ready else 503, {"ready": ready, "schema": current, "requiredSchema": required_schema, "maintenance": paused})
+                        healthy = ready or maintenance_ready and paused and required_schema == 1 and current == 2
+                        return self.respond(200 if healthy else 503, {"ready": healthy, "schema": current, "requiredSchema": required_schema, "maintenance": paused})
                     if route.path == "/version":
                         return self.respond(200, {"application": "document-qa-fixture", "version": version, "schema": current, "workload": "synthetic-lexical-not-llm", **revision})
                     if not ready or paused:
@@ -472,6 +473,8 @@ def main():
     server.add_argument("--model-dir", default=os.environ.get("MODEL_DIR", str(HERE / "models")))
     server.add_argument("--version", default=os.environ.get("APP_VERSION", "1.0.0"))
     server.add_argument("--schema", type=int, default=int(os.environ.get("SCHEMA_TARGET", "1")))
+    server.add_argument("--maintenance-ready", action="store_true", default=os.environ.get("MAINTENANCE_READY") == "1",
+                        help="Keep the quiesced schema-1 server healthy during the synthetic schema-2 migration")
     check = sub.add_parser("probe")
     check.add_argument("--base-url", required=True)
     check.add_argument("--check", choices=["health", "ingestion", "query", "persistence"], required=True)
@@ -502,7 +505,7 @@ def main():
         if args.command == "serve":
             with database(args.database, initialize=True):
                 pass
-            handler = make_handler(args.database, args.model_dir, args.version, args.schema)
+            handler = make_handler(args.database, args.model_dir, args.version, args.schema, args.maintenance_ready)
             with http.server.ThreadingHTTPServer((args.host, args.port), handler) as httpd:
                 emit({"state": "listening", "port": args.port, "workload": "synthetic-lexical-not-llm"})
                 httpd.serve_forever()

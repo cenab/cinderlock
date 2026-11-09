@@ -28,8 +28,8 @@ class DeliveryFixtureTests(unittest.TestCase):
         self.start()
         self.addCleanup(self.stop)
 
-    def start(self, schema=1):
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.make_handler(self.database, app.HERE / "models", "fixture-test", schema))
+    def start(self, schema=1, maintenance_ready=False):
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), app.make_handler(self.database, app.HERE / "models", "fixture-test", schema, maintenance_ready))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = "http://127.0.0.1:" + str(self.server.server_port)
@@ -54,6 +54,29 @@ class DeliveryFixtureTests(unittest.TestCase):
         self.start()
         self.assertEqual(app.probe(self.base, "persistence")["status"], "pass")
         self.assertEqual(self.call("/version")["workload"], "synthetic-lexical-not-llm")
+
+    def test_opt_in_maintenance_readiness_keeps_workflows_blocked(self):
+        app.maintenance(self.database, True)
+        app.migrate(self.database, 2, "maintenance-schema-test")
+        with self.assertRaises(urllib.error.HTTPError) as unavailable:
+            self.call("/health")
+        self.assertEqual(unavailable.exception.code, 503)
+        unavailable.exception.close()
+        self.stop()
+        self.start(maintenance_ready=True)
+        health = self.call("/health")
+        self.assertTrue(health["ready"] and health["maintenance"])
+        self.assertEqual((health["schema"], health["requiredSchema"]), (2, 1))
+        for path in ["/documents/cinderlock-fixture-redwood", "/query?q=redwood"]:
+            with self.assertRaises(urllib.error.HTTPError) as blocked:
+                self.call(path)
+            self.assertEqual(blocked.exception.code, 503)
+            blocked.exception.close()
+        app.maintenance(self.database, False)
+        with self.assertRaises(urllib.error.HTTPError) as mismatch:
+            self.call("/health")
+        self.assertEqual(mismatch.exception.code, 503)
+        mismatch.exception.close()
 
     def test_probe_consumes_staged_document_and_checks_it_after_restart(self):
         fixture = self.root / "document.json"

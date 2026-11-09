@@ -11,14 +11,15 @@ whole feature set. It does not establish a customer pilot or hardware support.
 Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
 using the normal intent, worker, coordination, approval and recovery owners:
 
-1. Merge and freeze the mutable data pass's exact source and CLI. Its reviewed
-   unit/race/vet gates pass. The [data contracts](mutable-gitops.md) implement
+1. Qualify a fresh persistent workflow from q007's retained inputs using the
+   frozen `cac2e73` CLI. The [data contracts](mutable-gitops.md) implement
    separate pre-adoption, post-adoption and same-source recovery plans through
    normal authorization, workers, acceptance and exact active-gate transfer.
-2. Qualify a fresh persistent workflow from the retained q007 inputs through
-   the resulting public CLI, then
-   finish the combined release gates, feature documentation and publication.
-   Keep failed upgrade acceptance separate from successful recovery.
+   Their unit/race/vet gates pass. The fresh fixture explicitly opts into
+   maintenance readiness and uses a narrowly authorized Pod replacement for
+   actual restart/persistence checks. Its new image still needs live evidence.
+2. Finish combined release gates, feature documentation and publication. Keep
+   failed upgrade acceptance separate from successful recovery.
 
 | Source | Completed evidence and boundary | Private records |
 | --- | --- | --- |
@@ -29,6 +30,7 @@ using the normal intent, worker, coordination, approval and recovery owners:
 | Published `edee42d` | Hosted run 42468205931 passed its Go job, install, upgrade and expected data-loss failure. The overall 30-minute Kubernetes budget cancelled before recovery proof; the next run uses 45 minutes with unchanged CLI/worker deadlines and assertions. | `.local/hosted-ci-42468205931/` |
 | Published `3dcbb3f` | Replacement hosted run 42471082512 passed build/security/distribution and all four CPU outcomes, including separate recovery and retained original failure. | `.local/hosted-ci-42471082512/` |
 | `c444900` | Authorized native preparation/check contracts pass unit/race/CLI and the live CPU model/stateless workflow, including five required checks and original worker identity readback. | `.local/argocd-workflow/q009/`, `.local/gitops-qualified-c444900/` |
+| `cac2e73` | Data phases pass full local unit/race/vet and consumer/approval/handoff regressions. Hosted Go job passed; its Kubernetes job remains in progress. Live mutable data remains unqualified. | `.local/gitops-qualified-cac2e73/`; GitHub run `42597359117` |
 
 The [qualification record](../../docs/qualification.md) owns detailed limits.
 Prerequisite duplication was removed while retaining actual-start, post-wait
