@@ -11,13 +11,16 @@ whole feature set. It does not establish a customer pilot or hardware support.
 Finish F39's incomplete mechanisms in the [feature audit](../../docs/features.md)
 using the normal intent, worker, coordination, approval and recovery owners:
 
-1. Qualify a fresh persistent workflow from q007's retained inputs using the
+1. Qualify the fresh q011 persistent workflow from q007's retained inputs using the
    frozen `cac2e73` CLI. The [data contracts](mutable-gitops.md) implement
    separate pre-adoption, post-adoption and same-source recovery plans through
    normal authorization, workers, acceptance and exact active-gate transfer.
    Their unit/race/vet gates pass. The fresh fixture explicitly opts into
    maintenance readiness and uses a narrowly authorized Pod replacement for
    actual restart/persistence checks. Its new image still needs live evidence.
+   Preserve q010: staging completed, but preparation planning rejected a stale
+   Helm-only timeout in its source marker before starting a model worker. The
+   fixture now constructs an inert marker instead of retaining writer fields.
 2. Finish combined release gates, feature documentation and publication. Keep
    failed upgrade acceptance separate from successful recovery.
 

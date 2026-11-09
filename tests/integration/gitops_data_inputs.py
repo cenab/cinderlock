@@ -104,9 +104,8 @@ def release_declaration(reference, number, base, platform, fixture):
         elif op["id"] == "quiesce":
             op["dependsOn"] = ["models"]
         elif op["id"] == "deploy":
-            op["type"] = "gitops"
-            if number == 1:
-                op["dependsOn"] = ["models"]
+            ops[index] = dict(id=op["id"], type="gitops", idempotent=True,
+                              dependsOn=["models"] if number == 1 else op["dependsOn"])
         elif op["type"] == "restart":
             ops[index] = restart_job(op)
             ops[index]["dependsOn"].append("acceptance-fixtures")

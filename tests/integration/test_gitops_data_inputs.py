@@ -36,6 +36,7 @@ class PersistentGitOpsInputsTest(unittest.TestCase):
                         self.assertEqual(ops[name]["command"], old[name]["command"])
                         self.assertEqual(ops[name]["script"], old[name]["script"])
                 self.assertEqual(ops["deploy"]["type"], "gitops")
+                self.assertEqual(set(ops["deploy"]), {"id", "type", "dependsOn", "idempotent"})
                 self.assertEqual(ops["acceptance-fixtures"]["dependsOn"], ["deploy"])
                 self.assertEqual(ops["models"]["dependsOn"], ["images"])
                 self.assertEqual(ops["restart"]["type"], "job")
